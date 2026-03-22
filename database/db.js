@@ -332,6 +332,14 @@ class DB {
     }
   }
 
+  updateRelationship(id, { relation_type, description }) {
+    this._run(
+      `UPDATE character_relationships SET relation_type = ?, description = ? WHERE id = ?`,
+      [relation_type, description || '', id]
+    )
+    this._save()
+  }
+
   deleteRelationship(id) {
     this._run(`DELETE FROM character_relationships WHERE id = ?`, [id])
   }

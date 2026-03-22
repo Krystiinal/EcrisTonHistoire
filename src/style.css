@@ -56,6 +56,33 @@ body {
   overflow: hidden;
 }
 
+/* Bannière mise à jour */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 20px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.update-banner-link {
+  color: #fff;
+  font-weight: 700;
+  text-decoration: underline;
+  margin-left: auto;
+}
+.update-banner-close {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
 /* Barre de statut globale */
 .app-status-bar {
   display: flex;
@@ -512,6 +539,21 @@ button { cursor: pointer; border-radius: 6px; border: none; font-size: 13px; pad
   align-items: center;
   gap: 12px;
 }
+
+.rel-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+.char-relations-list { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.char-rel-item {
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.char-rel-other { font-weight: 600; font-size: 14px; }
 
 .rel-names { flex: 1; font-weight: 500; }
 .rel-type-badge {

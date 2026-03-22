@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('api', {
   relationships: {
     getAll: (projectId) => ipcRenderer.invoke('relationships:getAll', projectId),
     save: (data) => ipcRenderer.invoke('relationships:save', data),
+    update: (id, data) => ipcRenderer.invoke('relationships:update', id, data),
     delete: (id) => ipcRenderer.invoke('relationships:delete', id),
   },
 
@@ -72,8 +73,9 @@ contextBridge.exposeInMainWorld('api', {
 
   // Cycle de vie app
   app: {
-    onRequestSave: (cb) => ipcRenderer.on('app:request-save', cb),
-    saveComplete:  ()   => ipcRenderer.invoke('app:save-complete'),
+    onRequestSave:    (cb) => ipcRenderer.on('app:request-save', cb),
+    saveComplete:     ()   => ipcRenderer.invoke('app:save-complete'),
+    onUpdateAvailable:(cb) => ipcRenderer.on('app:update-available', (_, version, url) => cb(version, url)),
   },
 
   // Auto-backup

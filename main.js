@@ -2,6 +2,7 @@ process.noDeprecation = true
 const { app, BrowserWindow, ipcMain, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const https = require('https')
 const Database = require('./database/db')
 const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, PageBreak } = require('docx')
 const { parse: parseHTML } = require('node-html-parser')
@@ -293,6 +294,7 @@ app.whenReady().then(async () => {
   // --- Relations entre personnages ---
   ipcMain.handle('relationships:getAll', (_, projectId) => db.getRelationships(projectId))
   ipcMain.handle('relationships:save', (_, data) => db.saveRelationship(data))
+  ipcMain.handle('relationships:update', (_, id, data) => db.updateRelationship(id, data))
   ipcMain.handle('relationships:delete', (_, id) => db.deleteRelationship(id))
 
   // --- Chapitres ---
@@ -456,6 +458,9 @@ app.whenReady().then(async () => {
 
   createWindow()
 
+  // Vérification de mise à jour
+  mainWindow.webContents.once('did-finish-load', () => checkForUpdate())
+
   // Intercepter la fermeture : demander au renderer de sauvegarder d'abord
   let readyToClose = false
   mainWindow.on('close', (e) => {
@@ -470,6 +475,34 @@ app.whenReady().then(async () => {
     mainWindow.close()
   })
 })
+
+function isNewer(latest, current) {
+  const toArr = v => v.replace(/^v/, '').split('.').map(Number)
+  const [la, lb, lc = 0] = toArr(latest)
+  const [ca, cb, cc = 0] = toArr(current)
+  return la > ca || (la === ca && lb > cb) || (la === ca && lb === cb && lc > cc)
+}
+
+function checkForUpdate() {
+  https.get({
+    hostname: 'api.github.com',
+    path: '/repos/Krystiinal/EcrisTonHistoire/releases/latest',
+    headers: { 'User-Agent': 'EcrisTonHistoire-App' }
+  }, (res) => {
+    let data = ''
+    res.on('data', chunk => data += chunk)
+    res.on('end', () => {
+      try {
+        const json = JSON.parse(data)
+        const latest = json.tag_name || ''
+        const current = app.getVersion()
+        if (latest && isNewer(latest, current)) {
+          mainWindow?.webContents.send('app:update-available', latest.replace(/^v/, ''), json.html_url)
+        }
+      } catch {}
+    })
+  }).on('error', () => {})
+}
 
 app.on('window-all-closed', () => {
   if (db) db.close()
