@@ -2,6 +2,7 @@
 import { ref, computed, inject, watch, nextTick } from 'vue'
 
 const props = defineProps({ projectId: Number, characters: Array })
+
 const emit = defineEmits(['characters-changed'])
 const confirm = inject('confirm')
 
@@ -12,6 +13,7 @@ const traits = ref([])
 const arcs = ref([])
 const importance = ref(0)
 const images = ref([])
+const charRelations = ref([])
 
 // Modal nouveau personnage
 const showModal = ref(false)
@@ -73,6 +75,8 @@ async function openCharacter(id) {
   traits.value = await window.api.traits.getAll(id)
   arcs.value = await window.api.arcs.getAll(id)
   images.value = await window.api.characterImages.getAll(id)
+  const allRels = await window.api.relationships.getAll(props.projectId)
+  charRelations.value = allRels.filter(r => r.character_a_id === id || r.character_b_id === id)
   currentTab.value = 'identity'
 }
 
@@ -248,10 +252,10 @@ watch(() => props.projectId, () => { currentChar.value = null; images.value = []
 
         <!-- Onglets -->
         <div class="tabs">
-          <button v-for="tab in ['identity','background','traits','arcs','images']" :key="tab"
+          <button v-for="tab in ['identity','background','traits','arcs','relations','images']" :key="tab"
             class="tab-btn" :class="{ active: currentTab === tab }"
             @click="currentTab = tab">
-            {{ { identity: 'Identité', background: 'Backstory', traits: 'Traits', arcs: 'Arc narratif', images: 'Inspirations' }[tab] }}
+            {{ { identity: 'Identité', background: 'Backstory', traits: 'Traits', arcs: 'Arc narratif', relations: 'Relations', images: 'Inspirations' }[tab] }}
           </button>
         </div>
 
@@ -327,6 +331,26 @@ watch(() => props.projectId, () => { currentChar.value = null; images.value = []
           </div>
           <button class="btn-secondary" @click="addArc">+ Ajouter une étape</button>
           <button :ref="el => saveBtns['arcs'] = el" class="btn-primary" @click="saveArcs">Enregistrer l'arc</button>
+        </div>
+
+        <!-- Onglet Relations -->
+        <div v-show="currentTab === 'relations'" class="tab-content active" style="display:flex">
+          <p class="hint">Relations de ce personnage avec les autres.</p>
+          <div v-if="charRelations.length === 0" style="color:var(--text-muted);font-size:13px">
+            Aucune relation enregistrée pour ce personnage.
+          </div>
+          <div v-else class="char-relations-list">
+            <div v-for="r in charRelations" :key="r.id" class="char-rel-item">
+              <div class="char-rel-other">
+                {{ r.character_a_id === currentChar.id ? r.character_b_name : r.character_a_name }}
+              </div>
+              <span class="rel-type-badge">{{ r.relation_type }}</span>
+              <div v-if="r.description" class="rel-description">{{ r.description }}</div>
+            </div>
+          </div>
+          <p style="font-size:12px;color:var(--text-muted);margin-top:12px">
+            Pour modifier les relations, va dans l'onglet "Relations".
+          </p>
         </div>
 
         <!-- Onglet Inspirations -->

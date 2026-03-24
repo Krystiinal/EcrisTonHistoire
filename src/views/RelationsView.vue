@@ -11,6 +11,9 @@ const relType = ref('ami')
 const relDesc = ref('')
 const errorMsg = ref('')
 
+const editingRel = ref(null)
+const editForm = ref({ relation_type: '', description: '' })
+
 async function load() {
   if (!props.projectId) { relations.value = []; return }
   relations.value = await window.api.relationships.getAll(props.projectId)
@@ -39,6 +42,18 @@ async function addRelation() {
   await load()
 }
 
+function startEdit(r) {
+  editingRel.value = r
+  editForm.value = { relation_type: r.relation_type, description: r.description || '' }
+}
+
+async function saveEdit() {
+  if (!editingRel.value) return
+  await window.api.relationships.update(editingRel.value.id, editForm.value)
+  editingRel.value = null
+  await load()
+}
+
 async function deleteRelation(id) {
   const ok = await confirm('Supprimer cette relation ?')
   if (!ok) return
@@ -64,7 +79,10 @@ onMounted(load)
           <span class="rel-type-badge">{{ r.relation_type }}</span>
           <div class="rel-description">{{ r.description }}</div>
         </div>
-        <button class="btn-danger btn-remove-rel" @click="deleteRelation(r.id)">Supprimer</button>
+        <div class="rel-actions">
+          <button class="btn-secondary" @click="startEdit(r)">Modifier</button>
+          <button class="btn-danger btn-remove-rel" @click="deleteRelation(r.id)">Supprimer</button>
+        </div>
       </div>
     </div>
 
@@ -99,6 +117,35 @@ onMounted(load)
       </label>
       <p v-if="errorMsg" style="color:var(--warning)">{{ errorMsg }}</p>
       <button class="btn-primary" @click="addRelation">Ajouter la relation</button>
+    </div>
+  </div>
+
+  <!-- Modal édition -->
+  <div v-if="editingRel" class="modal-overlay">
+    <div class="modal">
+      <h2>Modifier la relation</h2>
+      <p style="color:var(--text-muted);margin-bottom:16px">
+        {{ editingRel.character_a_name }} ↔ {{ editingRel.character_b_name }}
+      </p>
+      <label>Type de relation
+        <select v-model="editForm.relation_type">
+          <option value="ami">Ami(e)</option>
+          <option value="ennemi">Ennemi(e)</option>
+          <option value="amour">Amour</option>
+          <option value="famille">Famille</option>
+          <option value="mentor">Mentor / Élève</option>
+          <option value="allie">Allié(e)</option>
+          <option value="rival">Rival(e)</option>
+          <option value="autre">Autre</option>
+        </select>
+      </label>
+      <label class="full-width">Description
+        <textarea v-model="editForm.description" rows="3"></textarea>
+      </label>
+      <div class="modal-actions">
+        <button class="btn-secondary" @click="editingRel = null">Annuler</button>
+        <button class="btn-primary" @click="saveEdit">Enregistrer</button>
+      </div>
     </div>
   </div>
 </template>

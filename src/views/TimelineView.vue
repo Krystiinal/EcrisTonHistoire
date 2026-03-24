@@ -81,14 +81,14 @@ watch(() => props.projectId, load, { immediate: true })
   <div class="view-inner">
     <div class="timeline-header">
       <div class="tl-title-row">
-        <h2 class="timeline-title">Chronologie des Laïhens</h2>
+        <h2 class="timeline-title">Chronologie</h2>
         <button class="btn-primary" @click="openEventModal()">+ Événement</button>
       </div>
-      <p class="timeline-subtitle">Du Premier Âge · <span>{{ dateRange }}</span></p>
+      <p v-if="dateRange" class="timeline-subtitle">{{ dateRange }}</p>
       <div class="timeline-controls">
         <div class="timeline-search-wrap">
           <span class="tl-search-icon">⌕</span>
-          <input v-model="search" type="text" placeholder="Rechercher un événement, personnage ou lieu...">
+          <input id="tl-search" v-model="search" type="text" placeholder="Rechercher un événement, personnage ou lieu...">
         </div>
         <div class="tl-filters">
           <button

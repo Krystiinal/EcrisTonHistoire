@@ -13,6 +13,10 @@ const projects = ref([])
 const currentProjectId = ref(null)
 const characters = ref([])
 
+// ---- Mise à jour ----
+const updateAvailable = ref(null) // { version, url }
+window.api.app.onUpdateAvailable((version, url) => { updateAvailable.value = { version, url } })
+
 // ---- Thème ----
 const theme = ref(localStorage.getItem('theme') || 'dark')
 
@@ -192,6 +196,13 @@ onMounted(loadProjects)
 </script>
 
 <template>
+  <!-- Bannière mise à jour -->
+  <div v-if="updateAvailable" class="update-banner">
+    <span>🎉 Une nouvelle version est disponible : <strong>v{{ updateAvailable.version }}</strong></span>
+    <a :href="updateAvailable.url" target="_blank" class="update-banner-link">Télécharger</a>
+    <button class="update-banner-close" @click="updateAvailable = null">×</button>
+  </div>
+
   <div class="app-body">
   <Sidebar
     :projects="projects"
