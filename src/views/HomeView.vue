@@ -155,11 +155,7 @@ function confirmNew() {
   filter: invert(1) drop-shadow(0 4px 16px rgba(233, 69, 96, 0.4));
 }
 
-:global(.theme-light) .home-logo {
-  /* Thème clair : plume en rouge accent */
-  filter: invert(28%) sepia(85%) saturate(1200%) hue-rotate(325deg) brightness(100%)
-          drop-shadow(0 4px 12px rgba(233, 69, 96, 0.25));
-}
+/* Note: light theme logo filter is in the non-scoped <style> block below */
 
 .home-title {
   font-size: 48px;
@@ -398,5 +394,13 @@ function confirmNew() {
   font-size: 12px;
   color: var(--color-muted);
   font-weight: 500;
+}
+</style>
+
+<style>
+/* Filtre logo thème clair — doit être non-scopé pour cibler html.theme-light correctement */
+html.theme-light .home-logo {
+  filter: invert(28%) sepia(85%) saturate(1200%) hue-rotate(325deg) brightness(100%)
+          drop-shadow(0 4px 12px rgba(233, 69, 96, 0.25));
 }
 </style>

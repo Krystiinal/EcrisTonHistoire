@@ -2,8 +2,8 @@ process.noDeprecation = true
 const { app, BrowserWindow, ipcMain, dialog, Menu, MenuItem } = require('electron')
 const path = require('path')
 const fs = require('fs')
-const https = require('https')
 const Database = require('./database/db')
+const { autoUpdater } = require('electron-updater')
 const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, PageBreak } = require('docx')
 const { parse: parseHTML } = require('node-html-parser')
 
@@ -535,8 +535,10 @@ app.whenReady().then(async () => {
     if (menu.items.length > 0) menu.popup()
   })
 
-  // Vérification de mise à jour
-  mainWindow.webContents.once('did-finish-load', () => checkForUpdate())
+  // Vérification de mise à jour (electron-updater)
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (process.env.NODE_ENV !== 'development') autoUpdater.checkForUpdates()
+  })
 
   // Intercepter la fermeture : demander au renderer de sauvegarder d'abord
   let readyToClose = false
@@ -553,33 +555,25 @@ app.whenReady().then(async () => {
   })
 })
 
-function isNewer(latest, current) {
-  const toArr = v => v.replace(/^v/, '').split('.').map(Number)
-  const [la, lb, lc = 0] = toArr(latest)
-  const [ca, cb, cc = 0] = toArr(current)
-  return la > ca || (la === ca && lb > cb) || (la === ca && lb === cb && lc > cc)
-}
+// ---- electron-updater ----
+autoUpdater.autoDownload = true
+autoUpdater.autoInstallOnAppQuit = true
 
-function checkForUpdate() {
-  https.get({
-    hostname: 'api.github.com',
-    path: '/repos/Krystiinal/EcrisTonHistoire/releases/latest',
-    headers: { 'User-Agent': 'EcrisTonHistoire-App' }
-  }, (res) => {
-    let data = ''
-    res.on('data', chunk => data += chunk)
-    res.on('end', () => {
-      try {
-        const json = JSON.parse(data)
-        const latest = json.tag_name || ''
-        const current = app.getVersion()
-        if (latest && isNewer(latest, current)) {
-          mainWindow?.webContents.send('app:update-available', latest.replace(/^v/, ''), json.html_url)
-        }
-      } catch {}
-    })
-  }).on('error', () => {})
-}
+autoUpdater.on('update-available', (info) => {
+  mainWindow?.webContents.send('app:update-available', info.version)
+})
+
+autoUpdater.on('download-progress', (progress) => {
+  mainWindow?.webContents.send('app:update-progress', Math.round(progress.percent))
+})
+
+autoUpdater.on('update-downloaded', () => {
+  mainWindow?.webContents.send('app:update-downloaded')
+})
+
+ipcMain.on('app:install-update', () => {
+  autoUpdater.quitAndInstall()
+})
 
 app.on('window-all-closed', () => {
   if (db) db.close()

@@ -81,9 +81,12 @@ contextBridge.exposeInMainWorld('api', {
 
   // Cycle de vie app
   app: {
-    onRequestSave:    (cb) => ipcRenderer.on('app:request-save', cb),
-    saveComplete:     ()   => ipcRenderer.invoke('app:save-complete'),
-    onUpdateAvailable:(cb) => ipcRenderer.on('app:update-available', (_, version, url) => cb(version, url)),
+    onRequestSave:      (cb) => ipcRenderer.on('app:request-save', cb),
+    saveComplete:       ()   => ipcRenderer.invoke('app:save-complete'),
+    onUpdateAvailable:  (cb) => ipcRenderer.on('app:update-available',  (_, version) => cb(version)),
+    onUpdateProgress:   (cb) => ipcRenderer.on('app:update-progress',   (_, percent) => cb(percent)),
+    onUpdateDownloaded: (cb) => ipcRenderer.on('app:update-downloaded', () => cb()),
+    installUpdate:      ()   => ipcRenderer.send('app:install-update'),
   },
 
   // Auto-backup

@@ -16,8 +16,13 @@ const currentProjectId = ref(null)
 const characters = ref([])
 
 // ---- Mise à jour ----
-const updateAvailable = ref(null) // { version, url }
-window.api.app.onUpdateAvailable((version, url) => { updateAvailable.value = { version, url } })
+const updateVersion  = ref(null)   // version disponible
+const updatePercent  = ref(null)   // null = pas en DL, 0-100 = en cours
+const updateReady    = ref(false)  // téléchargement terminé
+
+window.api.app.onUpdateAvailable((version) => { updateVersion.value = version })
+window.api.app.onUpdateProgress((percent)  => { updatePercent.value = percent })
+window.api.app.onUpdateDownloaded(()       => { updateReady.value = true; updatePercent.value = null })
 
 // ---- Thème ----
 const theme = ref(localStorage.getItem('theme') || 'dark')
@@ -200,10 +205,22 @@ onMounted(loadProjects)
 
 <template>
   <!-- Bannière mise à jour -->
-  <div v-if="updateAvailable" class="update-banner">
-    <span>🎉 Une nouvelle version est disponible : <strong>v{{ updateAvailable.version }}</strong></span>
-    <a :href="updateAvailable.url" target="_blank" class="update-banner-link">Télécharger</a>
-    <button class="update-banner-close" @click="updateAvailable = null"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+  <div v-if="updateReady" class="update-banner update-banner-ready">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+    <span>v{{ updateVersion }} téléchargée — installation à la fermeture de l'appli</span>
+    <button class="update-banner-install" @click="window.api.app.installUpdate()">Installer maintenant</button>
+    <button class="update-banner-close" @click="updateReady = false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+  </div>
+  <div v-else-if="updatePercent !== null" class="update-banner update-banner-progress">
+    <svg class="update-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+    <span>Téléchargement v{{ updateVersion }}…</span>
+    <div class="update-progress-bar"><div class="update-progress-fill" :style="`width:${updatePercent}%`"></div></div>
+    <span class="update-percent">{{ updatePercent }}%</span>
+  </div>
+  <div v-else-if="updateVersion" class="update-banner">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    <span>v{{ updateVersion }} disponible — téléchargement en arrière-plan…</span>
+    <button class="update-banner-close" @click="updateVersion = null"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
   </div>
 
   <div class="app-body">
