@@ -1,9 +1,11 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, inject } from 'vue'
 import logoUrl from '../assets/logo.png'
 
 const props = defineProps({ projects: Array })
 const emit  = defineEmits(['select-project', 'new-project'])
+
+const openSettings = inject('openSettings')
 
 const showNewModal = ref(false)
 const newName      = ref('')
@@ -126,6 +128,7 @@ function confirmNew() {
 </template>
 
 <style scoped>
+
 /* ── Layout principal ── */
 .home-view {
   flex: 1;
