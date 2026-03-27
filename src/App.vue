@@ -302,17 +302,6 @@ onMounted(loadProjects)
     </div>
   </div>
 
-  <!-- Modal confirmation globale -->
-  <div v-if="confirmState.show" class="modal-overlay">
-    <div class="modal modal-sm">
-      <p>{{ confirmState.message }}</p>
-      <div class="modal-actions">
-        <button class="btn-secondary" @click="onConfirmCancel">Annuler</button>
-        <button class="btn-danger" @click="onConfirmOk">Supprimer</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Modal Paramètres -->
   <div v-if="showSettings" class="modal-overlay" @click.self="showSettings = false">
     <div class="modal settings-modal">
@@ -379,7 +368,7 @@ onMounted(loadProjects)
 
       <section class="settings-section">
         <h3>Sauvegardes manuelles</h3>
-        <p class="backup-info">La base de données est sauvegardée dans <code>%APPDATA%\WriteForge\backups\</code></p>
+        <p class="backup-info">La base de données est sauvegardée dans <code>%APPDATA%\EcrisTonHistoire\backups\</code></p>
 
         <div class="backup-actions-row">
           <button class="btn-primary backup-create-btn" :disabled="backupWorking" @click="createBackup">
@@ -407,6 +396,17 @@ onMounted(loadProjects)
 
       <div class="modal-actions">
         <button class="btn-primary" @click="showSettings = false">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal confirmation globale — après toutes les autres modals pour être au premier plan -->
+  <div v-if="confirmState.show" class="modal-overlay">
+    <div class="modal modal-sm">
+      <p>{{ confirmState.message }}</p>
+      <div class="modal-actions">
+        <button class="btn-secondary" @click="onConfirmCancel">Annuler</button>
+        <button class="btn-danger" @click="onConfirmOk">Confirmer</button>
       </div>
     </div>
   </div>

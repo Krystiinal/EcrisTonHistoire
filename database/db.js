@@ -210,6 +210,15 @@ class DB {
       this.db.run(`UPDATE timeline_events SET project_id = (SELECT id FROM projects ORDER BY id ASC LIMIT 1) WHERE project_id IS NULL`)
     }
 
+    // Corriger les timeline_events dont le project_id n'existe plus dans projects
+    // (peut arriver après une restauration de backup qui réassigne les IDs)
+    this.db.run(`
+      UPDATE timeline_events
+      SET project_id = (SELECT id FROM projects ORDER BY id DESC LIMIT 1)
+      WHERE project_id NOT IN (SELECT id FROM projects)
+        AND (SELECT COUNT(*) FROM projects) > 0
+    `)
+
     // Ajouter status aux chapitres si absent
     const chapCols = this._query(`PRAGMA table_info(chapters)`).map(r => r.name)
     if (!chapCols.includes('status')) {

@@ -1,5 +1,5 @@
 process.noDeprecation = true
-const { app, BrowserWindow, ipcMain, dialog, Menu, MenuItem } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, Menu, MenuItem, shell } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const Database = require('./database/db')
@@ -269,7 +269,8 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('backup:openFolder', () => {
-    require('electron').shell.openPath(backupsDir)
+    if (!fs.existsSync(backupsDir)) fs.mkdirSync(backupsDir, { recursive: true })
+    shell.openPath(backupsDir)
   })
 
   fontsDir = path.join(app.getPath('userData'), 'custom-fonts')
@@ -420,7 +421,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('links:getAll', (_, characterId) => db.getLinks(characterId))
   ipcMain.handle('links:add', (_, characterId, url, label) => db.addLink(characterId, url, label))
   ipcMain.handle('links:delete', (_, id) => db.deleteLink(id))
-  ipcMain.handle('links:open', (_, url) => require('electron').shell.openExternal(url))
+  ipcMain.handle('links:open', (_, url) => shell.openExternal(url))
 
   // --- Image éditeur (insertion dans le contenu) ---
   ipcMain.handle('editor:pickImage', async () => {
