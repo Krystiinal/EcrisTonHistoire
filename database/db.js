@@ -120,6 +120,13 @@ class DB {
         position     INTEGER DEFAULT 0
       );
 
+      CREATE TABLE IF NOT EXISTS character_links (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+        url          TEXT NOT NULL,
+        label        TEXT DEFAULT ''
+      );
+
       CREATE TABLE IF NOT EXISTS chapters (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
         project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -130,6 +137,20 @@ class DB {
         position   INTEGER DEFAULT 0,
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS writing_sessions (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        date       TEXT NOT NULL,
+        words_added INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(project_id, date)
+      );
+
+      CREATE TABLE IF NOT EXISTS writing_goals (
+        id     INTEGER PRIMARY KEY AUTOINCREMENT,
+        type   TEXT NOT NULL UNIQUE,
+        target INTEGER NOT NULL
       );
     `)
   }
@@ -173,6 +194,11 @@ class DB {
       ['origin',           "TEXT DEFAULT 'Autre'"],
       ['importance',       'INTEGER DEFAULT 0'],
       ['name_translation', 'TEXT'],
+      ['home',             'TEXT'],
+      ['social_level',     'TEXT'],
+      ['likes',            'TEXT'],
+      ['dislikes',         'TEXT'],
+      ['clothing',         'TEXT'],
     ]) {
       if (!charCols.includes(col)) this.db.run(`ALTER TABLE characters ADD COLUMN ${col} ${def}`)
     }
@@ -243,7 +269,7 @@ class DB {
   }
 
   updateCharacter(id, data) {
-    const fields = ['name', 'name_translation', 'role', 'origin', 'importance', 'age', 'gender', 'appearance', 'background', 'motivation', 'fears', 'secrets', 'notes']
+    const fields = ['name', 'name_translation', 'role', 'origin', 'importance', 'age', 'gender', 'appearance', 'clothing', 'background', 'motivation', 'fears', 'likes', 'dislikes', 'secrets', 'notes', 'home', 'social_level']
     const toUpdate = fields.filter(f => data[f] !== undefined)
     if (toUpdate.length === 0) return this.getCharacter(id)
 
@@ -446,6 +472,24 @@ class DB {
     this._run(`DELETE FROM character_images WHERE id = ?`, [id])
   }
 
+  // ---- Liens inspiration personnages ----
+
+  getLinks(characterId) {
+    return this._query(`SELECT * FROM character_links WHERE character_id = ? ORDER BY id ASC`, [characterId])
+  }
+
+  addLink(characterId, url, label) {
+    const id = this._run(
+      `INSERT INTO character_links (character_id, url, label) VALUES (?, ?, ?)`,
+      [characterId, url, label || '']
+    )
+    return this._query(`SELECT * FROM character_links WHERE id = ?`, [id])[0]
+  }
+
+  deleteLink(id) {
+    this._run(`DELETE FROM character_links WHERE id = ?`, [id])
+  }
+
   // ---- Chapitres ----
 
   getAllChapters(projectId) {
@@ -478,6 +522,55 @@ class DB {
 
   deleteChapter(id) {
     this._run(`DELETE FROM chapters WHERE id = ?`, [id])
+  }
+
+  // ---- Statistiques d'écriture ----
+
+  recordWords(projectId, delta, date) {
+    this.db.run(`
+      INSERT INTO writing_sessions (project_id, date, words_added) VALUES (?, ?, ?)
+      ON CONFLICT(project_id, date) DO UPDATE SET words_added = words_added + excluded.words_added
+    `, [projectId, date, delta])
+    this._save()
+  }
+
+  getHistory(days = 30) {
+    const since = new Date(Date.now() - (days - 1) * 86400000).toISOString().split('T')[0]
+    return this._query(`
+      SELECT s.date, SUM(s.words_added) as total, s.project_id, p.name as project_name
+      FROM writing_sessions s
+      JOIN projects p ON p.id = s.project_id
+      WHERE s.date >= ?
+      GROUP BY s.date, s.project_id
+      ORDER BY s.date ASC
+    `, [since])
+  }
+
+  getSummary() {
+    const now = new Date()
+    const today = now.toISOString().split('T')[0]
+    const diff = now.getDay() === 0 ? -6 : 1 - now.getDay()
+    const monday = new Date(now); monday.setDate(now.getDate() + diff)
+    const weekStart = monday.toISOString().split('T')[0]
+    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+    return {
+      today:  this._query(`SELECT COALESCE(SUM(words_added),0) as t FROM writing_sessions WHERE date = ?`, [today])[0]?.t ?? 0,
+      week:   this._query(`SELECT COALESCE(SUM(words_added),0) as t FROM writing_sessions WHERE date >= ?`, [weekStart])[0]?.t ?? 0,
+      month:  this._query(`SELECT COALESCE(SUM(words_added),0) as t FROM writing_sessions WHERE date >= ?`, [monthStart])[0]?.t ?? 0,
+    }
+  }
+
+  getGoals() {
+    return this._query(`SELECT * FROM writing_goals`)
+  }
+
+  setGoal(type, target) {
+    this.db.run(`INSERT INTO writing_goals (type, target) VALUES (?, ?) ON CONFLICT(type) DO UPDATE SET target = excluded.target`, [type, target])
+    this._save()
+  }
+
+  deleteGoal(type) {
+    this._run(`DELETE FROM writing_goals WHERE type = ?`, [type])
   }
 
   getProjectWordCount(projectId) {

@@ -46,7 +46,7 @@ function flash() {
   if (!btn) return
   const orig = btn.textContent
   btn.textContent = '✓ Enregistré'
-  btn.style.background = 'var(--success)'
+  btn.style.background = 'var(--color-success)'
   setTimeout(() => { btn.textContent = orig; btn.style.background = '' }, 1500)
 }
 
@@ -117,3 +117,193 @@ onMounted(load)
     </div>
   </div>
 </template>
+
+<style scoped>
+/* ── Layout ───────────────────────────────────────────── */
+.view-inner {
+  padding: 32px 40px;
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.empty-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+  font-size: 14px;
+}
+
+.project-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  flex: 1;
+}
+
+/* ── Titre du projet ──────────────────────────────────── */
+.project-title-row {
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 20px;
+}
+
+.project-name-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--color-tx);
+  letter-spacing: -0.02em;
+  padding: 0;
+}
+
+.project-name-input::placeholder {
+  color: var(--color-muted);
+  opacity: 0.6;
+}
+
+/* ── Grille 2 colonnes ────────────────────────────────── */
+.project-content-grid {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 24px;
+  flex: 1;
+}
+
+/* ── Colonne principale ───────────────────────────────── */
+.project-main-col {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.project-main-col label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-muted);
+}
+
+.project-main-col textarea {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-input);
+  color: var(--color-tx);
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.2s ease;
+  font-family: inherit;
+}
+
+.project-main-col textarea:focus {
+  border-color: var(--color-accent);
+}
+
+/* ── Colonne méta ─────────────────────────────────────── */
+.project-side-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.meta-card {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: box-shadow 0.2s ease;
+}
+
+.meta-card:hover {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
+}
+
+.meta-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-muted);
+}
+
+.meta-card select {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-input);
+  color: var(--color-tx);
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.meta-card select:focus {
+  border-color: var(--color-accent);
+}
+
+.meta-number-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.meta-word-count {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-accent);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.meta-unit {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.meta-sublabel {
+  font-size: 11px;
+  color: var(--color-muted);
+  opacity: 0.7;
+}
+
+.meta-card input[type="number"] {
+  width: 72px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-input);
+  color: var(--color-tx);
+  font-size: 14px;
+  font-weight: 600;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.meta-card input[type="number"]:focus {
+  border-color: var(--color-accent);
+}
+
+/* ── Actions ──────────────────────────────────────────── */
+.project-actions {
+  display: flex;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+</style>

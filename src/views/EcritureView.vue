@@ -30,6 +30,21 @@ const TextBlock = Node.create({
     }, 0]
   },
 })
+// ---- Nœud Saut de page ----
+const PageBreakNode = Node.create({
+  name: 'pageBreak',
+  group: 'block',
+  atom: true,
+  parseHTML() { return [{ tag: 'div[data-type="page-break"]' }] },
+  renderHTML() { return ['div', { 'data-type': 'page-break', class: 'editor-page-break' }] },
+  addCommands() {
+    return {
+      insertPageBreak: () => ({ chain }) =>
+        chain().focus().insertContent({ type: 'pageBreak' }).run()
+    }
+  }
+})
+
 import Underline from '@tiptap/extension-underline'
 import TextStyle from '@tiptap/extension-text-style'
 import FontFamily from '@tiptap/extension-font-family'
@@ -62,6 +77,12 @@ const FontSize = Extension.create({
 import TextAlign from '@tiptap/extension-text-align'
 import CharacterCount from '@tiptap/extension-character-count'
 import Highlight from '@tiptap/extension-highlight'
+import Link from '@tiptap/extension-link'
+import ImageExt from '@tiptap/extension-image'
+import Superscript from '@tiptap/extension-superscript'
+import Subscript from '@tiptap/extension-subscript'
+import TaskList from '@tiptap/extension-task-list'
+import TaskItem from '@tiptap/extension-task-item'
 
 const props = defineProps({ projectId: Number })
 const confirm = inject('confirm')
@@ -77,7 +98,7 @@ let saveTimer = null
 
 // ---- Statuts de chapitre ----
 const CHAPTER_STATUSES = [
-  { value: null,        icon: '○', label: 'Aucun',    color: 'var(--text-muted)' },
+  { value: null,        icon: '○', label: 'Aucun',    color: 'var(--color-muted)' },
   { value: 'en_cours',  icon: '✏', label: 'En cours', color: '#4a9eff' },
   { value: 'a_revoir',  icon: '⚑', label: 'À revoir', color: '#ff9800' },
   { value: 'a_relire',  icon: '◎', label: 'À relire', color: '#b07fff' },
@@ -124,8 +145,13 @@ function toggleStatusPicker(e, ch) {
   statusPickerOpenId.value  = ch.id
 }
 
-// Fermer le picker au clic extérieur
-function onDocClick() { statusPickerOpenId.value = null }
+// Fermer les dropdowns au clic extérieur
+function onDocClick() {
+  statusPickerOpenId.value = null
+  showStyleDropdown.value = false
+  showLinkPopup.value = false
+  showSpecialChars.value = false
+}
 
 // Modal nouveau chapitre / partie
 const showChapterModal = ref(false)
@@ -232,11 +258,11 @@ function onWheelZoom(e) {
 
 // ---- Estimation du nombre de pages ----
 const PAGE_FORMATS = [
-  { id: 'roman',  label: 'Roman (135×210)',  w: 135, h: 210 },
-  { id: 'poche',  label: 'Poche (108×177)',  w: 108, h: 177 },
-  { id: 'a5',     label: 'A5 (148×210)',     w: 148, h: 210 },
-  { id: 'a4',     label: 'A4 (210×297)',     w: 210, h: 297 },
-  { id: 'custom', label: 'Personnalisé',     w: null, h: null },
+  { id: 'roman',  label: 'Roman (135×210)',  short: 'Roman', w: 135, h: 210, svgW: 11, svgH: 17 },
+  { id: 'poche',  label: 'Poche (108×177)',  short: 'Poche', w: 108, h: 177, svgW: 10, svgH: 17 },
+  { id: 'a5',     label: 'A5 (148×210)',     short: 'A5',    w: 148, h: 210, svgW: 12, svgH: 17 },
+  { id: 'a4',     label: 'A4 (210×297)',     short: 'A4',    w: 210, h: 297, svgW: 12, svgH: 17 },
+  { id: 'custom', label: 'Personnalisé',     short: '···',   w: null, h: null, svgW: 12, svgH: 17 },
 ]
 
 const pageEst = ref({
@@ -338,6 +364,72 @@ const currentFontLabel = computed(() => {
 const customFonts = ref([])
 const showFontManager = ref(false)
 
+// ---- Style dropdown ----
+const showStyleDropdown = ref(false)
+const STYLES = [
+  { label: 'Normal',    cmd: ed => ed.chain().focus().setParagraph().run() },
+  { label: 'Titre 1',  cmd: ed => ed.chain().focus().toggleHeading({ level: 1 }).run() },
+  { label: 'Titre 2',  cmd: ed => ed.chain().focus().toggleHeading({ level: 2 }).run() },
+  { label: 'Titre 3',  cmd: ed => ed.chain().focus().toggleHeading({ level: 3 }).run() },
+  { label: 'Titre 4',  cmd: ed => ed.chain().focus().toggleHeading({ level: 4 }).run() },
+  { label: 'Titre 5',  cmd: ed => ed.chain().focus().toggleHeading({ level: 5 }).run() },
+  { label: 'Titre 6',  cmd: ed => ed.chain().focus().toggleHeading({ level: 6 }).run() },
+  { label: 'Citation', cmd: ed => ed.chain().focus().toggleBlockquote().run() },
+  { label: 'Code',     cmd: ed => ed.chain().focus().toggleCodeBlock().run() },
+]
+const currentStyle = computed(() => {
+  if (!editor.value) return 'Normal'
+  for (let i = 1; i <= 6; i++) {
+    if (editor.value.isActive('heading', { level: i })) return `Titre ${i}`
+  }
+  if (editor.value.isActive('blockquote')) return 'Citation'
+  if (editor.value.isActive('codeBlock')) return 'Code'
+  return 'Normal'
+})
+
+// ---- Lien ----
+const showLinkPopup = ref(false)
+const linkUrl = ref('')
+const linkPopupStyle = ref({})
+
+function openLinkPopup(e) {
+  const r = e?.currentTarget?.getBoundingClientRect()
+  if (r) linkPopupStyle.value = { top: r.bottom + 4 + 'px', left: r.left + 'px' }
+  linkUrl.value = editor.value?.getAttributes('link').href || ''
+  showLinkPopup.value = true
+  showStyleDropdown.value = false
+  showSpecialChars.value = false
+}
+function applyLink() {
+  if (linkUrl.value.trim()) {
+    editor.value?.chain().focus().setLink({ href: linkUrl.value.trim(), target: '_blank' }).run()
+  } else {
+    editor.value?.chain().focus().unsetLink().run()
+  }
+  showLinkPopup.value = false
+  linkUrl.value = ''
+}
+
+// ---- Image ----
+async function pickAndInsertImage() {
+  const dataUrl = await window.api.editor.pickImage()
+  if (dataUrl) editor.value?.chain().focus().setImage({ src: dataUrl }).run()
+}
+
+// ---- Caractères spéciaux ----
+const showSpecialChars = ref(false)
+const specialCharsStyle = ref({})
+const SPECIAL_CHARS = [
+  ['«', '»', '\u201C', '\u201D', '\u2018', '\u2019', '—', '–', '…', '°'],
+  ['©', '®', '™', '§', '¶', '†', '•', '·', '‽', 'Nº'],
+  ['½', '¼', '¾', '⅓', '⅔', '⅛', '⅜', '⅝', '⅞', 'ø'],
+  ['×', '÷', '±', '≠', '≤', '≥', '∞', '≈', '√', 'π'],
+]
+function insertSpecialChar(char) {
+  editor.value?.chain().focus().insertContent(char).run()
+  showSpecialChars.value = false
+}
+
 function injectFontFace(font) {
   if (!font.dataUrl) return
   if (document.querySelector(`style[data-font-id="${font.id}"]`)) return
@@ -372,7 +464,7 @@ const allFonts = computed(() => [
 
 const editor = useEditor({
   extensions: [
-    StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
+    StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] } }),
     Underline,
     TextStyle,
     FontFamily,
@@ -381,6 +473,13 @@ const editor = useEditor({
     CharacterCount,
     Highlight.configure({ multicolor: false }),
     TextBlock,
+    PageBreakNode,
+    Link.configure({ openOnClick: false }),
+    ImageExt,
+    Superscript,
+    Subscript,
+    TaskList,
+    TaskItem.configure({ nested: true }),
   ],
   content: '',
   editorProps: {
@@ -588,13 +687,13 @@ onBeforeUnmount(async () => {
           :class="{ active: showSearch }"
           title="Rechercher dans tous les chapitres"
           @click="showSearch = !showSearch; searchQuery = ''; searchResults = []"
-        >⌕</button>
+        ><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button>
         <button
           class="chapter-export-btn"
           :disabled="!chapters.length || exporting"
           title="Exporter tous les chapitres en Word (.docx)"
           @click="exportWord"
-        >{{ exporting ? '…' : '⤓' }}</button>
+        ><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
       </div>
 
       <!-- Mode recherche -->
@@ -652,8 +751,25 @@ onBeforeUnmount(async () => {
               :key="fmt.id"
               class="fmt-btn"
               :class="{ active: pageEst.formatId === fmt.id }"
+              :title="fmt.label"
               @click="applyFormat(fmt)"
-            >{{ fmt.label }}</button>
+            >
+              <svg :width="fmt.svgW" :height="fmt.svgH" :viewBox="`0 0 ${fmt.svgW} ${fmt.svgH}`">
+                <rect
+                  x="0.5" y="0.5"
+                  :width="fmt.svgW - 1" :height="fmt.svgH - 1"
+                  rx="1"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1"
+                  :stroke-dasharray="fmt.id === 'custom' ? '2,1' : 'none'"
+                />
+                <line v-if="fmt.id !== 'custom'" :x1="2" :y1="4" :x2="fmt.svgW - 2" :y2="4" stroke="currentColor" stroke-width="0.8" opacity="0.5"/>
+                <line v-if="fmt.id !== 'custom'" :x1="2" :y1="7" :x2="fmt.svgW - 2" :y2="7" stroke="currentColor" stroke-width="0.8" opacity="0.5"/>
+                <line v-if="fmt.id !== 'custom'" :x1="2" :y1="10" :x2="fmt.svgW - 4" :y2="10" stroke="currentColor" stroke-width="0.8" opacity="0.5"/>
+              </svg>
+              <span>{{ fmt.short }}</span>
+            </button>
           </div>
           <div v-if="pageEst.formatId === 'custom'" class="page-est-row">
             <span>Format (mm)</span>
@@ -720,7 +836,7 @@ onBeforeUnmount(async () => {
                 class="chapter-item-delete"
                 title="Supprimer"
                 @click.stop="deleteChapter(ch)"
-              >×</button>
+              ><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
             </div>
           </template>
         </div>
@@ -752,9 +868,9 @@ onBeforeUnmount(async () => {
             :title="saveStatus === 'saving' ? 'Sauvegarde en cours…' : saveStatus === 'saved' ? 'Sauvegardé' : 'Sauvegarder (Ctrl+S)'"
             @click="forceSaveNow"
           >
-            <span v-if="saveStatus === 'saving'" class="csb-icon csb-spin">⟳</span>
+            <span v-if="saveStatus === 'saving'" class="csb-icon csb-spin"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="spin-icon"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
             <span v-else-if="saveStatus === 'saved'" class="csb-icon">✓</span>
-            <span v-else class="csb-icon">💾</span>
+            <span v-else class="csb-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></span>
             <span class="csb-label">
               {{ saveStatus === 'saving' ? 'Sauvegarde…' : saveStatus === 'saved' ? 'Sauvegardé' : 'Sauvegarder' }}
             </span>
@@ -769,32 +885,37 @@ onBeforeUnmount(async () => {
 
         <!-- Toolbar -->
         <div class="editor-toolbar" v-if="editor">
-          <!-- Paragraphe / Titres -->
-          <div class="toolbar-group">
+
+          <!-- Style dropdown -->
+          <div class="toolbar-group" style="position:relative">
             <button
-              class="toolbar-btn"
-              :class="{ active: editor.isActive('paragraph') && !editor.isActive('heading') }"
-              title="Paragraphe"
-              @click="editor.chain().focus().setParagraph().run()"
-            >¶</button>
-            <button
-              v-for="level in [1, 2, 3]" :key="level"
-              class="toolbar-btn"
-              :class="{ active: editor.isActive('heading', { level }) }"
-              :title="`Titre ${level}`"
-              @click="editor.chain().focus().toggleHeading({ level }).run()"
-            >H{{ level }}</button>
+              class="style-picker-btn"
+              @click.stop="showStyleDropdown = !showStyleDropdown; showFontDropdown = false; showLinkPopup = false; showSpecialChars = false"
+              title="Style de paragraphe"
+            >{{ currentStyle }}<span class="font-picker-arrow">▾</span></button>
+            <div v-if="showStyleDropdown" class="style-picker-list" @click.stop>
+              <div
+                v-for="s in STYLES" :key="s.label"
+                class="style-picker-item"
+                :class="{ active: currentStyle === s.label }"
+                :data-style="s.label"
+                @click="s.cmd(editor); showStyleDropdown = false"
+              >{{ s.label }}</div>
+            </div>
           </div>
 
           <div class="toolbar-sep"></div>
 
           <!-- Formatage -->
           <div class="toolbar-group">
-            <button class="toolbar-btn" :class="{ active: editor.isActive('bold') }" title="Gras" @click="editor.chain().focus().toggleBold().run()"><b>G</b></button>
-            <button class="toolbar-btn" :class="{ active: editor.isActive('italic') }" title="Italique" @click="editor.chain().focus().toggleItalic().run()"><i>I</i></button>
-            <button class="toolbar-btn" :class="{ active: editor.isActive('underline') }" title="Souligné" @click="editor.chain().focus().toggleUnderline().run()"><u>S</u></button>
+            <button class="toolbar-btn" :class="{ active: editor.isActive('bold') }" title="Gras (Ctrl+B)" @click="editor.chain().focus().toggleBold().run()"><b>G</b></button>
+            <button class="toolbar-btn" :class="{ active: editor.isActive('italic') }" title="Italique (Ctrl+I)" @click="editor.chain().focus().toggleItalic().run()"><i>I</i></button>
+            <button class="toolbar-btn" :class="{ active: editor.isActive('underline') }" title="Souligné (Ctrl+U)" @click="editor.chain().focus().toggleUnderline().run()"><u>S</u></button>
             <button class="toolbar-btn" :class="{ active: editor.isActive('strike') }" title="Barré" @click="editor.chain().focus().toggleStrike().run()"><s>B</s></button>
-            <button class="toolbar-btn" :class="{ active: editor.isActive('highlight') }" title="Surligner" @click="editor.chain().focus().toggleHighlight().run()">⬛</button>
+            <button class="toolbar-btn sup-btn" :class="{ active: editor.isActive('superscript') }" title="Exposant" @click="editor.chain().focus().toggleSuperscript().run()">x²</button>
+            <button class="toolbar-btn sup-btn" :class="{ active: editor.isActive('subscript') }" title="Indice" @click="editor.chain().focus().toggleSubscript().run()">x₂</button>
+            <button class="toolbar-btn" :class="{ active: editor.isActive('highlight') }" title="Surligner" @click="editor.chain().focus().toggleHighlight().run()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/><path d="M15 5l3 3"/></svg></button>
+            <button class="toolbar-btn" title="Effacer la mise en forme" @click="editor.chain().focus().clearNodes().unsetAllMarks().run()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20H7L3 16l10-10 7 7-3.5 3.5"/><path d="M6.5 17.5l3-3"/></svg></button>
           </div>
 
           <div class="toolbar-sep"></div>
@@ -811,10 +932,72 @@ onBeforeUnmount(async () => {
 
           <!-- Alignement -->
           <div class="toolbar-group">
-            <button class="toolbar-btn" :class="{ active: editor.isActive({ textAlign: 'left' }) }" title="Gauche" @click="editor.chain().focus().setTextAlign('left').run()">≡</button>
-            <button class="toolbar-btn" :class="{ active: editor.isActive({ textAlign: 'center' }) }" title="Centrer" @click="editor.chain().focus().setTextAlign('center').run()">≡</button>
-            <button class="toolbar-btn" :class="{ active: editor.isActive({ textAlign: 'right' }) }" title="Droite" @click="editor.chain().focus().setTextAlign('right').run()">≡</button>
-            <button class="toolbar-btn" :class="{ active: editor.isActive({ textAlign: 'justify' }) }" title="Justifier" @click="editor.chain().focus().setTextAlign('justify').run()">≡</button>
+            <button class="toolbar-btn" :class="{ active: editor.isActive({ textAlign: 'left' }) }" title="Gauche" @click="editor.chain().focus().setTextAlign('left').run()"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="4" width="18" height="2" rx="1"/><rect x="3" y="9" width="12" height="2" rx="1"/><rect x="3" y="14" width="18" height="2" rx="1"/><rect x="3" y="19" width="10" height="2" rx="1"/></svg></button>
+            <button class="toolbar-btn" :class="{ active: editor.isActive({ textAlign: 'center' }) }" title="Centrer" @click="editor.chain().focus().setTextAlign('center').run()"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="4" width="18" height="2" rx="1"/><rect x="6" y="9" width="12" height="2" rx="1"/><rect x="3" y="14" width="18" height="2" rx="1"/><rect x="7" y="19" width="10" height="2" rx="1"/></svg></button>
+            <button class="toolbar-btn" :class="{ active: editor.isActive({ textAlign: 'right' }) }" title="Droite" @click="editor.chain().focus().setTextAlign('right').run()"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="4" width="18" height="2" rx="1"/><rect x="9" y="9" width="12" height="2" rx="1"/><rect x="3" y="14" width="18" height="2" rx="1"/><rect x="11" y="19" width="10" height="2" rx="1"/></svg></button>
+            <button class="toolbar-btn" :class="{ active: editor.isActive({ textAlign: 'justify' }) }" title="Justifier" @click="editor.chain().focus().setTextAlign('justify').run()"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="4" width="18" height="2" rx="1"/><rect x="3" y="9" width="18" height="2" rx="1"/><rect x="3" y="14" width="18" height="2" rx="1"/><rect x="3" y="19" width="18" height="2" rx="1"/></svg></button>
+          </div>
+
+          <div class="toolbar-sep"></div>
+
+          <!-- Listes -->
+          <div class="toolbar-group">
+            <button class="toolbar-btn" :class="{ active: editor.isActive('bulletList') }" title="Liste à puces" @click="editor.chain().focus().toggleBulletList().run()">• −</button>
+            <button class="toolbar-btn" :class="{ active: editor.isActive('orderedList') }" title="Liste numérotée" @click="editor.chain().focus().toggleOrderedList().run()">1.</button>
+            <button class="toolbar-btn" :class="{ active: editor.isActive('taskList') }" title="Liste de cases à cocher" @click="editor.chain().focus().toggleTaskList().run()">☑</button>
+          </div>
+
+          <div class="toolbar-sep"></div>
+
+          <!-- Insertion -->
+          <div class="toolbar-group" style="position:relative">
+            <!-- Lien -->
+            <button
+              class="toolbar-btn"
+              :class="{ active: editor.isActive('link') }"
+              title="Insérer / modifier un lien"
+              @click.stop="openLinkPopup($event)"
+            ><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></button>
+            <div v-if="showLinkPopup" class="link-popup" :style="linkPopupStyle" @click.stop>
+              <input
+                v-model="linkUrl"
+                type="url"
+                placeholder="https://..."
+                class="link-input"
+                @keydown.enter="applyLink"
+                @keydown.escape="showLinkPopup = false"
+              >
+              <button class="btn-primary btn-sm" @click="applyLink">OK</button>
+              <button v-if="editor.isActive('link')" class="btn-danger btn-sm" @click="editor.chain().focus().unsetLink().run(); showLinkPopup = false">✕</button>
+            </div>
+
+            <!-- Image -->
+            <button class="toolbar-btn" title="Insérer une image (fichier local)" @click="pickAndInsertImage"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></button>
+
+            <!-- Caractères spéciaux -->
+            <button
+              class="toolbar-btn"
+              :class="{ active: showSpecialChars }"
+              title="Caractères spéciaux"
+              @click.stop="(e) => { const r = e.currentTarget.getBoundingClientRect(); specialCharsStyle = { top: r.bottom + 4 + 'px', left: r.left + 'px' }; showSpecialChars = !showSpecialChars; showLinkPopup = false; showStyleDropdown = false }"
+            >Ω</button>
+            <div v-if="showSpecialChars" class="special-chars-popup" :style="specialCharsStyle" @click.stop>
+              <div v-for="(row, ri) in SPECIAL_CHARS" :key="ri" class="special-chars-row">
+                <button
+                  v-for="char in row" :key="char"
+                  class="special-char-btn"
+                  :title="char"
+                  @click="insertSpecialChar(char)"
+                >{{ char }}</button>
+              </div>
+            </div>
+
+            <!-- Saut de page -->
+            <button
+              class="toolbar-btn"
+              title="Insérer un saut de page"
+              @click="editor.chain().focus().insertPageBreak().run()"
+            >⊟</button>
           </div>
 
           <div class="toolbar-sep"></div>
@@ -855,7 +1038,7 @@ onBeforeUnmount(async () => {
               <button
                 class="font-picker-btn"
                 :style="currentFont ? `font-family: ${currentFont}` : ''"
-                @click.stop="showFontDropdown = !showFontDropdown"
+                @click.stop="showFontDropdown = !showFontDropdown; showStyleDropdown = false"
               >
                 {{ currentFontLabel }}<span class="font-picker-arrow">▾</span>
               </button>
@@ -870,7 +1053,7 @@ onBeforeUnmount(async () => {
                 >{{ f.label }}</div>
               </div>
             </div>
-            <button class="toolbar-btn" title="Gérer les polices" @click="showFontManager = true; showFontDropdown = false">🖋</button>
+            <button class="toolbar-btn" title="Gérer les polices" @click="showFontManager = true; showFontDropdown = false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></button>
           </div>
 
           <div class="toolbar-sep"></div>
@@ -892,9 +1075,6 @@ onBeforeUnmount(async () => {
 
           <div class="toolbar-sep"></div>
 
-
-          <div class="toolbar-sep"></div>
-
           <!-- Bloc personnalisé -->
           <div class="toolbar-group">
             <button
@@ -905,28 +1085,16 @@ onBeforeUnmount(async () => {
             >❰ ❱</button>
           </div>
 
-          <!-- Contrôles contextuels du bloc (visibles seulement quand le curseur est dedans) -->
+          <!-- Contrôles contextuels du bloc -->
           <template v-if="inTextBlock">
             <div class="toolbar-sep"></div>
             <div class="toolbar-group textblock-controls">
               <span class="textblock-label">Bloc :</span>
               <span class="textblock-slider-label">◀</span>
-              <input
-                type="range"
-                :value="textBlockAttrs.marginLeft"
-                min="0" max="300" step="8"
-                class="textblock-slider"
-                @input="e => updateTextBlock('marginLeft', +e.target.value)"
-              >
+              <input type="range" :value="textBlockAttrs.marginLeft" min="0" max="300" step="8" class="textblock-slider" @input="e => updateTextBlock('marginLeft', +e.target.value)">
               <span class="textblock-val">{{ textBlockAttrs.marginLeft }}px</span>
               <span class="textblock-slider-label">▶</span>
-              <input
-                type="range"
-                :value="textBlockAttrs.marginRight"
-                min="0" max="300" step="8"
-                class="textblock-slider"
-                @input="e => updateTextBlock('marginRight', +e.target.value)"
-              >
+              <input type="range" :value="textBlockAttrs.marginRight" min="0" max="300" step="8" class="textblock-slider" @input="e => updateTextBlock('marginRight', +e.target.value)">
               <span class="textblock-val">{{ textBlockAttrs.marginRight }}px</span>
             </div>
           </template>
@@ -1015,6 +1183,124 @@ onBeforeUnmount(async () => {
 </template>
 
 <style scoped>
+/* ---- Style dropdown ---- */
+.style-picker-btn {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-tx);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 3px 8px;
+  min-width: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  height: 28px;
+  white-space: nowrap;
+}
+.style-picker-btn:hover { border-color: var(--color-accent); }
+
+.style-picker-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--color-sidebar);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+  z-index: 9999;
+  min-width: 140px;
+  overflow: hidden;
+}
+
+.style-picker-item {
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.1s;
+}
+.style-picker-item:hover { background: var(--color-card); }
+.style-picker-item.active { color: var(--color-accent); }
+.style-picker-item[data-style="Titre 1"] { font-size: 18px; font-weight: 700; }
+.style-picker-item[data-style="Titre 2"] { font-size: 16px; font-weight: 700; }
+.style-picker-item[data-style="Titre 3"] { font-size: 14px; font-weight: 600; }
+.style-picker-item[data-style="Titre 4"] { font-size: 13px; font-weight: 600; }
+.style-picker-item[data-style="Citation"] { font-style: italic; border-left: 3px solid var(--color-accent); padding-left: 8px; }
+.style-picker-item[data-style="Code"] { font-family: monospace; font-size: 12px; }
+
+/* ---- Boutons exposant/indice ---- */
+.sup-btn { font-size: 11px; }
+
+/* ---- Popup lien ---- */
+.link-popup {
+  position: fixed;
+  background: #16213e;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+  z-index: 9999;
+  padding: 8px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 280px;
+}
+
+.link-input {
+  flex: 1;
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-tx);
+  font-size: 12px;
+  padding: 4px 8px;
+}
+.link-input:focus { outline: none; border-color: var(--color-accent); }
+
+/* ---- Popup caractères spéciaux ---- */
+.special-chars-popup {
+  position: fixed;
+  background: #16213e;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.85);
+  z-index: 9999;
+  padding: 8px;
+  isolation: isolate;
+}
+.theme-light .special-chars-popup,
+:root.theme-light .special-chars-popup {
+  background: #e4e0d9;
+}
+.theme-light .link-popup,
+:root.theme-light .link-popup {
+  background: #e4e0d9;
+}
+
+.special-chars-row {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 2px;
+}
+
+.special-char-btn {
+  width: 28px;
+  height: 28px;
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-tx);
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.1s;
+}
+.special-char-btn:hover { background: var(--color-accent); color: white; border-color: var(--color-accent); }
+
 /* ---- Liste chapitres ---- */
 .ecriture-list-panel {
   width: 240px;
@@ -1031,10 +1317,10 @@ onBeforeUnmount(async () => {
 }
 
 .chapter-search-toggle {
-  background: var(--input-bg);
-  border: 1px solid var(--border);
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  color: var(--text-muted);
+  color: var(--color-muted);
   cursor: pointer;
   font-size: 18px;
   width: 34px;
@@ -1045,13 +1331,13 @@ onBeforeUnmount(async () => {
   flex-shrink: 0;
 }
 .chapter-search-toggle:hover,
-.chapter-search-toggle.active { border-color: var(--accent); color: var(--accent); background: rgba(233,69,96,0.08); }
+.chapter-search-toggle.active { border-color: var(--color-accent); color: var(--color-accent); background: rgba(233,69,96,0.08); }
 
 .chapter-export-btn {
-  background: var(--input-bg);
-  border: 1px solid var(--border);
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  color: var(--text-muted);
+  color: var(--color-muted);
   cursor: pointer;
   font-size: 16px;
   width: 34px;
@@ -1061,7 +1347,7 @@ onBeforeUnmount(async () => {
   transition: all 0.15s;
   flex-shrink: 0;
 }
-.chapter-export-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: rgba(233,69,96,0.08); }
+.chapter-export-btn:hover:not(:disabled) { border-color: var(--color-accent); color: var(--color-accent); background: rgba(233,69,96,0.08); }
 .chapter-export-btn:disabled { opacity: 0.35; cursor: default; }
 
 /* ---- Recherche ---- */
@@ -1072,22 +1358,22 @@ onBeforeUnmount(async () => {
 
 .search-input {
   width: 100%;
-  background: var(--input-bg);
-  border: 1px solid var(--border);
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  color: var(--text);
+  color: var(--color-tx);
   font-size: 13px;
   padding: 7px 28px 7px 10px;
   box-sizing: border-box;
 }
-.search-input:focus { outline: none; border-color: var(--accent); }
+.search-input:focus { outline: none; border-color: var(--color-accent); }
 
 .search-spinner {
   position: absolute;
   right: 24px;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--text-muted);
+  color: var(--color-muted);
   font-size: 16px;
 }
 
@@ -1099,7 +1385,7 @@ onBeforeUnmount(async () => {
 
 .search-empty {
   padding: 12px 14px;
-  color: var(--text-muted);
+  color: var(--color-muted);
   font-size: 12px;
 }
 
@@ -1109,7 +1395,7 @@ onBeforeUnmount(async () => {
   border-left: 3px solid transparent;
   transition: all 0.15s;
 }
-.search-result-item:hover { background: var(--bg-card); border-left-color: var(--accent); }
+.search-result-item:hover { background: var(--color-card); border-left-color: var(--color-accent); }
 
 .search-result-header {
   display: flex;
@@ -1121,18 +1407,18 @@ onBeforeUnmount(async () => {
 .search-result-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--color-tx);
 }
 
 .search-result-count {
   font-size: 11px;
-  color: var(--accent);
+  color: var(--color-accent);
   font-weight: 600;
 }
 
 .search-result-part {
   font-size: 10px;
-  color: var(--text-muted);
+  color: var(--color-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin: 0 0 4px;
@@ -1140,10 +1426,10 @@ onBeforeUnmount(async () => {
 
 .search-result-snippet {
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--color-muted);
   line-height: 1.5;
   margin: 3px 0 0;
-  border-left: 2px solid var(--border);
+  border-left: 2px solid var(--color-border);
   padding-left: 6px;
 }
 
@@ -1153,7 +1439,7 @@ onBeforeUnmount(async () => {
 
 :deep(.search-result-snippet mark) {
   background: rgba(233, 69, 96, 0.35);
-  color: var(--text);
+  color: var(--color-tx);
   border-radius: 2px;
   padding: 0 1px;
 }
@@ -1165,8 +1451,8 @@ onBeforeUnmount(async () => {
   gap: 6px;
   padding: 6px 14px 10px;
   font-size: 11px;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--border);
+  color: var(--color-muted);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .chapter-list {
@@ -1177,7 +1463,7 @@ onBeforeUnmount(async () => {
 
 .chapter-empty-hint {
   padding: 16px;
-  color: var(--text-muted);
+  color: var(--color-muted);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -1187,7 +1473,7 @@ onBeforeUnmount(async () => {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: var(--accent);
+  color: var(--color-accent);
   font-weight: 600;
 }
 
@@ -1211,7 +1497,7 @@ onBeforeUnmount(async () => {
   transition: opacity 0.15s, background 0.15s;
   padding: 0;
 }
-.chapter-status-btn:hover { opacity: 1; background: var(--border); }
+.chapter-status-btn:hover { opacity: 1; background: var(--color-border); }
 
 
 .chapter-item {
@@ -1225,10 +1511,10 @@ onBeforeUnmount(async () => {
   gap: 8px;
 }
 
-.chapter-item:hover { background: var(--bg-card); }
+.chapter-item:hover { background: var(--color-card); }
 .chapter-item.active {
-  background: var(--bg-card);
-  border-left-color: var(--accent);
+  background: var(--color-card);
+  border-left-color: var(--color-accent);
 }
 
 .chapter-item-info {
@@ -1240,7 +1526,7 @@ onBeforeUnmount(async () => {
 
 .chapter-item-title {
   font-size: 13px;
-  color: var(--text);
+  color: var(--color-tx);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1248,14 +1534,14 @@ onBeforeUnmount(async () => {
 
 .chapter-item-words {
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--color-muted);
   margin-top: 2px;
 }
 
 .chapter-item-delete {
   background: none;
   border: none;
-  color: var(--text-muted);
+  color: var(--color-muted);
   cursor: pointer;
   font-size: 16px;
   padding: 0 4px;
@@ -1265,7 +1551,7 @@ onBeforeUnmount(async () => {
 }
 
 .chapter-item:hover .chapter-item-delete { opacity: 1; }
-.chapter-item-delete:hover { color: var(--accent); }
+.chapter-item-delete:hover { color: var(--color-accent); }
 
 /* ---- Éditeur ---- */
 .ecriture-editor-panel {
@@ -1280,8 +1566,8 @@ onBeforeUnmount(async () => {
   align-items: center;
   gap: 12px;
   padding: 12px 24px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-sidebar);
   flex-shrink: 0;
 }
 
@@ -1291,11 +1577,11 @@ onBeforeUnmount(async () => {
   border: none;
   font-size: 18px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--color-tx);
   outline: none;
 }
 
-.chapter-title-input::placeholder { color: var(--text-muted); }
+.chapter-title-input::placeholder { color: var(--color-muted); }
 
 .chapter-save-btn {
   display: flex;
@@ -1303,16 +1589,16 @@ onBeforeUnmount(async () => {
   gap: 5px;
   padding: 4px 10px;
   border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--input-bg);
-  color: var(--text-muted);
+  border: 1px solid var(--color-border);
+  background: var(--color-input);
+  color: var(--color-muted);
   cursor: pointer;
   font-size: 12px;
   flex-shrink: 0;
   transition: all 0.2s;
   white-space: nowrap;
 }
-.chapter-save-btn:hover { border-color: var(--accent); color: var(--text); }
+.chapter-save-btn:hover { border-color: var(--color-accent); color: var(--color-tx); }
 
 .chapter-save-btn.saving {
   border-color: var(--warning, #ff9800);
@@ -1320,8 +1606,8 @@ onBeforeUnmount(async () => {
   cursor: default;
 }
 .chapter-save-btn.saved {
-  border-color: var(--success, #4caf50);
-  color: var(--success, #4caf50);
+  border-color: var(--color-success, #4caf50);
+  color: var(--color-success, #4caf50);
 }
 
 .csb-icon { font-size: 13px; line-height: 1; }
@@ -1330,7 +1616,7 @@ onBeforeUnmount(async () => {
 
 .editor-word-count {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--color-muted);
   white-space: nowrap;
 }
 
@@ -1342,10 +1628,10 @@ onBeforeUnmount(async () => {
 }
 
 .zoom-btn {
-  background: var(--input-bg);
-  border: 1px solid var(--border);
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
   border-radius: 4px;
-  color: var(--text);
+  color: var(--color-tx);
   cursor: pointer;
   font-size: 15px;
   width: 26px;
@@ -1357,27 +1643,51 @@ onBeforeUnmount(async () => {
   transition: all 0.15s;
   padding: 0;
 }
-.zoom-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.zoom-btn:hover:not(:disabled) { border-color: var(--color-accent); color: var(--color-accent); }
 .zoom-btn:disabled { opacity: 0.35; cursor: default; }
 
 .zoom-level {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--color-muted);
   min-width: 36px;
   text-align: center;
   cursor: pointer;
   user-select: none;
 }
-.zoom-level:hover { color: var(--accent); }
+.zoom-level:hover { color: var(--color-accent); }
+
+/* ---- Saut de page ---- */
+:deep(.editor-page-break) {
+  display: block;
+  border-top: 1px dashed var(--color-muted);
+  margin: 16px 0;
+  position: relative;
+  cursor: default;
+  user-select: none;
+}
+:deep(.editor-page-break)::after {
+  content: '— saut de page —';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%) translateY(-50%);
+  top: 0;
+  background: var(--color-bg);
+  padding: 0 10px;
+  font-size: 10px;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
 
 /* ---- Toolbar ---- */
 .editor-toolbar {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 8px 16px;
-  background: var(--bg-sidebar);
-  border-bottom: 1px solid var(--border);
+  padding: 6px 16px;
+  background: var(--color-sidebar);
+  border-bottom: 1px solid var(--color-border);
   flex-wrap: wrap;
   flex-shrink: 0;
 }
@@ -1390,7 +1700,7 @@ onBeforeUnmount(async () => {
 .toolbar-sep {
   width: 1px;
   height: 22px;
-  background: var(--border);
+  background: var(--color-border);
   margin: 0 4px;
 }
 
@@ -1399,7 +1709,7 @@ onBeforeUnmount(async () => {
   background: none;
   border: none;
   border-radius: 4px;
-  color: var(--text-muted);
+  color: var(--color-muted);
   cursor: pointer;
   font-size: 13px;
   font-family: inherit;
@@ -1407,15 +1717,15 @@ onBeforeUnmount(async () => {
   min-width: 28px;
 }
 
-.toolbar-btn:hover { background: var(--bg-card); color: var(--text); }
-.toolbar-btn.active { background: var(--accent); color: white; }
+.toolbar-btn:hover { background: var(--color-card); color: var(--color-tx); }
+.toolbar-btn.active { background: var(--color-accent); color: white; }
 
 /* ---- Estimation pages ---- */
 .page-est-btn {
   background: none;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   border-radius: 4px;
-  color: var(--accent);
+  color: var(--color-accent);
   font-size: 11px;
   padding: 2px 7px;
   cursor: pointer;
@@ -1423,11 +1733,11 @@ onBeforeUnmount(async () => {
   white-space: nowrap;
 }
 .page-est-btn:hover,
-.page-est-btn.active { background: rgba(233,69,96,0.1); border-color: var(--accent); }
+.page-est-btn.active { background: rgba(233,69,96,0.1); border-color: var(--color-accent); }
 
 .page-est-panel {
-  background: var(--bg-card);
-  border-bottom: 1px solid var(--border);
+  background: var(--color-card);
+  border-bottom: 1px solid var(--color-border);
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
@@ -1439,7 +1749,7 @@ onBeforeUnmount(async () => {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.6px;
-  color: var(--accent);
+  color: var(--color-accent);
   margin: 0 0 2px;
 }
 
@@ -1450,17 +1760,21 @@ onBeforeUnmount(async () => {
 }
 
 .fmt-btn {
-  background: var(--input-bg);
-  border: 1px solid var(--border);
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
   border-radius: 4px;
-  color: var(--text-muted);
-  font-size: 11px;
-  padding: 3px 8px;
+  color: var(--color-muted);
+  font-size: 10px;
+  padding: 5px 8px;
   cursor: pointer;
   transition: all 0.15s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
-.fmt-btn:hover { border-color: var(--text-muted); color: var(--text); }
-.fmt-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(233,69,96,0.08); }
+.fmt-btn:hover { border-color: var(--color-muted); color: var(--color-tx); }
+.fmt-btn.active { border-color: var(--color-accent); color: var(--color-accent); background: rgba(233,69,96,0.08); }
 
 .page-est-row {
   display: flex;
@@ -1468,7 +1782,7 @@ onBeforeUnmount(async () => {
   justify-content: space-between;
   gap: 8px;
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--color-muted);
 }
 
 .page-est-dims {
@@ -1476,7 +1790,7 @@ onBeforeUnmount(async () => {
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--color-muted);
 }
 
 .page-est-margins {
@@ -1489,46 +1803,46 @@ onBeforeUnmount(async () => {
   align-items: center;
   gap: 2px;
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--color-muted);
 }
 
 .est-input {
   width: 48px;
-  background: var(--input-bg);
-  border: 1px solid var(--border);
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
   border-radius: 4px;
-  color: var(--text);
+  color: var(--color-tx);
   font-size: 12px;
   padding: 3px 5px;
   text-align: center;
 }
-.est-input:focus { outline: none; border-color: var(--accent); }
+.est-input:focus { outline: none; border-color: var(--color-accent); }
 
 .est-input-sm {
   width: 36px;
-  background: var(--input-bg);
-  border: 1px solid var(--border);
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
   border-radius: 4px;
-  color: var(--text);
+  color: var(--color-tx);
   font-size: 11px;
   padding: 2px 4px;
   text-align: center;
 }
-.est-input-sm:focus { outline: none; border-color: var(--accent); }
+.est-input-sm:focus { outline: none; border-color: var(--color-accent); }
 
 .page-est-result {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding-top: 8px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--color-border);
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--color-muted);
 }
 
 .page-est-result strong {
   font-size: 13px;
-  color: var(--accent);
+  color: var(--color-accent);
   font-weight: 600;
 }
 
@@ -1543,8 +1857,8 @@ onBeforeUnmount(async () => {
   top: calc(100% + 6px);
   left: 0;
   z-index: 100;
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border);
+  background: var(--color-sidebar);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 14px 16px;
   min-width: 280px;
@@ -1557,7 +1871,7 @@ onBeforeUnmount(async () => {
 .para-settings-title {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--color-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin: 0 0 4px;
@@ -1568,7 +1882,7 @@ onBeforeUnmount(async () => {
   align-items: center;
   gap: 10px;
   font-size: 13px;
-  color: var(--text);
+  color: var(--color-tx);
   cursor: default;
 }
 
@@ -1576,12 +1890,12 @@ onBeforeUnmount(async () => {
   width: 130px;
   flex-shrink: 0;
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--color-muted);
 }
 
 .para-setting-row input[type="range"] {
   flex: 1;
-  accent-color: var(--accent);
+  accent-color: var(--color-accent);
   cursor: pointer;
 }
 
@@ -1589,7 +1903,7 @@ onBeforeUnmount(async () => {
   width: 36px;
   text-align: right;
   font-size: 12px;
-  color: var(--accent);
+  color: var(--color-accent);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1603,10 +1917,10 @@ onBeforeUnmount(async () => {
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  background: var(--input-bg);
-  border: 1px solid var(--border);
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
   border-radius: 4px;
-  color: var(--text);
+  color: var(--color-tx);
   font-size: 13px;
   cursor: pointer;
   min-width: 130px;
@@ -1615,16 +1929,16 @@ onBeforeUnmount(async () => {
   transition: border-color 0.15s;
 }
 .font-picker-btn:hover,
-.font-picker.open .font-picker-btn { border-color: var(--accent); }
+.font-picker.open .font-picker-btn { border-color: var(--color-accent); }
 
 .font-size-group { gap: 2px; }
 
 .case-btn { font-size: 11px; font-weight: 600; letter-spacing: -0.5px; min-width: 26px; }
 .font-size-select {
-  background: var(--input-bg);
-  border: 1px solid var(--border);
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
   border-radius: 5px;
-  color: var(--text);
+  color: var(--color-tx);
   font-size: 12px;
   height: 28px;
   padding: 0 4px;
@@ -1632,12 +1946,12 @@ onBeforeUnmount(async () => {
   cursor: pointer;
   outline: none;
 }
-.font-size-select:hover { border-color: var(--accent); }
+.font-size-select:hover { border-color: var(--color-accent); }
 
 .font-picker-arrow {
   margin-left: auto;
   font-size: 10px;
-  color: var(--text-muted);
+  color: var(--color-muted);
 }
 
 .font-picker-list {
@@ -1645,8 +1959,8 @@ onBeforeUnmount(async () => {
   top: calc(100% + 4px);
   left: 0;
   z-index: 100;
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border);
+  background: var(--color-sidebar);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   min-width: 180px;
   max-height: 260px;
@@ -1659,24 +1973,24 @@ onBeforeUnmount(async () => {
   padding: 8px 14px;
   font-size: 14px;
   cursor: pointer;
-  color: var(--text);
+  color: var(--color-tx);
   transition: background 0.1s;
 }
-.font-picker-item:hover { background: var(--bg-card); }
-.font-picker-item.active { color: var(--accent); }
+.font-picker-item:hover { background: var(--color-card); }
+.font-picker-item.active { color: var(--color-accent); }
 
 /* ---- Page d'écriture ---- */
 .editor-page-wrapper {
   flex: 1;
   overflow-y: auto;
   padding: 32px 24px;
-  background: var(--bg);
+  background: var(--color-bg);
 }
 
 .editor-page {
   max-width: 720px;
   margin: 0 auto;
-  background: var(--bg-card);
+  background: var(--color-card);
   border-radius: 8px;
   padding: 48px 56px;
   min-height: calc(100vh - 180px);
@@ -1689,7 +2003,7 @@ onBeforeUnmount(async () => {
   min-height: calc(100vh - 380px);
   line-height: 1.9;
   font-size: 15px;
-  color: var(--text);
+  color: var(--color-tx);
 }
 
 :deep(.prose-editor p) {
@@ -1697,9 +2011,9 @@ onBeforeUnmount(async () => {
   margin-bottom: var(--para-space-after, 12px);
   text-indent: var(--para-indent, 0em);
 }
-:deep(.prose-editor h1) { font-size: 26px; font-weight: 700; margin: 0 0 16px; color: var(--text); }
-:deep(.prose-editor h2) { font-size: 20px; font-weight: 600; margin: 0 0 14px; color: var(--text); }
-:deep(.prose-editor h3) { font-size: 16px; font-weight: 600; margin: 0 0 12px; color: var(--text-muted); }
+:deep(.prose-editor h1) { font-size: 26px; font-weight: 700; margin: 0 0 16px; color: var(--color-tx); }
+:deep(.prose-editor h2) { font-size: 20px; font-weight: 600; margin: 0 0 14px; color: var(--color-tx); }
+:deep(.prose-editor h3) { font-size: 16px; font-weight: 600; margin: 0 0 12px; color: var(--color-muted); }
 :deep(.prose-editor strong) { font-weight: 700; }
 :deep(.prose-editor em) { font-style: italic; }
 :deep(.prose-editor u) { text-decoration: underline; }
@@ -1707,7 +2021,7 @@ onBeforeUnmount(async () => {
 :deep(.prose-editor mark) { background: rgba(233, 69, 96, 0.3); border-radius: 2px; padding: 0 2px; }
 :deep(.prose-editor p.is-editor-empty:first-child::before) {
   content: attr(data-placeholder);
-  color: var(--text-muted);
+  color: var(--color-muted);
   pointer-events: none;
   float: left;
   height: 0;
@@ -1715,7 +2029,7 @@ onBeforeUnmount(async () => {
 
 /* ---- Bloc indenté ---- */
 :deep(div[data-type="text-block"]) {
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid var(--color-accent);
   border-radius: 0 4px 4px 0;
   background: rgba(233, 69, 96, 0.05);
   padding: 4px 16px;
@@ -1735,24 +2049,24 @@ onBeforeUnmount(async () => {
 
 .textblock-label {
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--color-muted);
   white-space: nowrap;
 }
 
 .textblock-slider-label {
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--color-muted);
 }
 
 .textblock-slider {
   width: 80px;
-  accent-color: var(--accent);
+  accent-color: var(--color-accent);
   cursor: pointer;
 }
 
 .textblock-val {
   font-size: 11px;
-  color: var(--accent);
+  color: var(--color-accent);
   width: 34px;
   font-variant-numeric: tabular-nums;
 }
@@ -1768,7 +2082,7 @@ onBeforeUnmount(async () => {
 }
 
 .font-empty {
-  color: var(--text-muted);
+  color: var(--color-muted);
   font-size: 13px;
   padding: 12px 0;
 }
@@ -1779,34 +2093,34 @@ onBeforeUnmount(async () => {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 14px;
-  background: var(--input-bg);
+  background: var(--color-input);
   border-radius: 6px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
 }
 
 .font-preview {
   font-size: 16px;
-  color: var(--text);
+  color: var(--color-tx);
   flex: 1;
 }
 
 .font-delete {
   background: none;
   border: none;
-  color: var(--text-muted);
+  color: var(--color-muted);
   font-size: 18px;
   cursor: pointer;
   padding: 0 4px;
   line-height: 1;
 }
-.font-delete:hover { color: var(--accent); }
+.font-delete:hover { color: var(--color-accent); }
 </style>
 
 <style>
 /* Status picker — téléporté au body, ne peut pas être scoped */
 .status-picker {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 4px;
   z-index: 9999;
@@ -1829,8 +2143,8 @@ onBeforeUnmount(async () => {
   text-align: left;
   transition: background 0.12s;
 }
-.status-picker-item:hover { background: var(--input-bg); }
-.status-picker-item.active { background: var(--input-bg); font-weight: 600; }
+.status-picker-item:hover { background: var(--color-input); }
+.status-picker-item.active { background: var(--color-input); font-weight: 600; }
 .spi-icon { font-size: 13px; width: 16px; text-align: center; }
-.spi-label { font-size: 12px; color: var(--text); }
+.spi-label { font-size: 12px; color: var(--color-tx); }
 </style>

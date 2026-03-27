@@ -42,6 +42,12 @@
     "@tiptap/extension-character-count": "^2.0.0",
     "@tiptap/extension-font-family": "^2.0.0",
     "@tiptap/extension-highlight": "^2.0.0",
+    "@tiptap/extension-image": "^2.27.2",
+    "@tiptap/extension-link": "^2.27.2",
+    "@tiptap/extension-subscript": "^2.27.2",
+    "@tiptap/extension-superscript": "^2.27.2",
+    "@tiptap/extension-task-item": "^2.27.2",
+    "@tiptap/extension-task-list": "^2.27.2",
     "@tiptap/extension-text-align": "^2.0.0",
     "@tiptap/extension-text-style": "^2.0.0",
     "@tiptap/extension-underline": "^2.0.0",
@@ -54,12 +60,15 @@
     "vue": "^3.4.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.2.2",
     "@vitejs/plugin-vue": "^5.0.0",
     "concurrently": "^8.0.0",
     "cross-env": "^7.0.0",
     "electron": "^35.7.5",
+    "electron-builder": "^26.8.1",
+    "tailwindcss": "^4.2.2",
+    "to-ico": "^1.1.5",
     "vite": "^5.0.0",
-    "wait-on": "^7.0.0",
-    "electron-builder": "^26.8.1"
+    "wait-on": "^7.0.0"
   }
 }

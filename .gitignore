@@ -17,15 +17,37 @@ script_chronologie.jsx
 # Cache electron-builder
 .electron-builder-cache/
 
+# Cache Vite / Tailwind
+.vite/
+node_modules/.cache/
+node_modules/.vite/
+
 # Variables d'environnement
 .env
 .env.local
+.env.*.local
 
 # Logs
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Données utilisateur (base SQLite locale, images perso)
+*.db
+*.db-journal
+character-images/
+backups/
 
 # Système
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Éditeurs
+.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln

@@ -71,6 +71,14 @@ contextBridge.exposeInMainWorld('api', {
     delete: (id) => ipcRenderer.invoke('images:delete', id),
   },
 
+  // Liens inspiration personnages
+  characterLinks: {
+    getAll: (characterId) => ipcRenderer.invoke('links:getAll', characterId),
+    add: (characterId, url, label) => ipcRenderer.invoke('links:add', characterId, url, label),
+    delete: (id) => ipcRenderer.invoke('links:delete', id),
+    open: (url) => ipcRenderer.invoke('links:open', url),
+  },
+
   // Cycle de vie app
   app: {
     onRequestSave:    (cb) => ipcRenderer.on('app:request-save', cb),
@@ -97,6 +105,20 @@ contextBridge.exposeInMainWorld('api', {
     restore:    (name) => ipcRenderer.invoke('backup:restore', name),
     delete:     (name) => ipcRenderer.invoke('backup:delete', name),
     openFolder: ()     => ipcRenderer.invoke('backup:openFolder'),
+  },
+
+  // Éditeur
+  editor: {
+    pickImage: () => ipcRenderer.invoke('editor:pickImage'),
+  },
+
+  // Statistiques d'écriture
+  stats: {
+    getSummary: ()             => ipcRenderer.invoke('stats:getSummary'),
+    getHistory: (days)         => ipcRenderer.invoke('stats:getHistory', days),
+    getGoals:   ()             => ipcRenderer.invoke('stats:getGoals'),
+    setGoal:    (type, target) => ipcRenderer.invoke('stats:setGoal', type, target),
+    deleteGoal: (type)         => ipcRenderer.invoke('stats:deleteGoal', type),
   },
 
   // Chronologie

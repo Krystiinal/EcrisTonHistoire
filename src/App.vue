@@ -1,14 +1,16 @@
 <script setup>
 import { ref, provide, onMounted } from 'vue'
 import Sidebar from './components/Sidebar.vue'
+import HomeView from './views/HomeView.vue'
 import ProjetView from './views/ProjetView.vue'
 import PersonnagesView from './views/PersonnagesView.vue'
 import RelationsView from './views/RelationsView.vue'
 import TimelineView from './views/TimelineView.vue'
 import EcritureView from './views/EcritureView.vue'
 import LiminairesView from './views/LiminairesView.vue'
+import StatsView from './views/StatsView.vue'
 
-const currentView = ref('projet')
+const currentView = ref('home')
 const projects = ref([])
 const currentProjectId = ref(null)
 const characters = ref([])
@@ -153,12 +155,6 @@ provide('confirm', confirm)
 async function loadProjects() {
   const list = await window.api.projects.getAll()
   projects.value = list
-  if (list.length > 0) {
-    const saved = localStorage.getItem('lastProjectId')
-    const match = list.find(p => p.id == saved)
-    currentProjectId.value = match ? match.id : list[0].id
-    await loadCharacters()
-  }
 }
 
 async function loadCharacters() {
@@ -170,6 +166,7 @@ async function onSelectProject(id) {
   currentProjectId.value = id
   localStorage.setItem('lastProjectId', id)
   await loadCharacters()
+  currentView.value = 'projet'
 }
 
 async function onNewProject(name) {
@@ -184,7 +181,13 @@ async function onNewProject(name) {
 async function onProjectDeleted() {
   currentProjectId.value = null
   characters.value = []
+  currentView.value = 'home'
   await loadProjects()
+}
+
+function goHome() {
+  currentProjectId.value = null
+  currentView.value = 'home'
 }
 
 async function onProjectUpdated(name) {
@@ -200,22 +203,30 @@ onMounted(loadProjects)
   <div v-if="updateAvailable" class="update-banner">
     <span>🎉 Une nouvelle version est disponible : <strong>v{{ updateAvailable.version }}</strong></span>
     <a :href="updateAvailable.url" target="_blank" class="update-banner-link">Télécharger</a>
-    <button class="update-banner-close" @click="updateAvailable = null">×</button>
+    <button class="update-banner-close" @click="updateAvailable = null"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
   </div>
 
   <div class="app-body">
   <Sidebar
+    v-if="currentProjectId"
     :projects="projects"
     :current-project-id="currentProjectId"
     :current-view="currentView"
     @change-view="v => currentView = v"
     @select-project="onSelectProject"
     @new-project="onNewProject"
+    @go-home="goHome"
   />
 
   <main class="main-content">
+    <HomeView
+      v-if="currentView === 'home'"
+      :projects="projects"
+      @select-project="onSelectProject"
+      @new-project="onNewProject"
+    />
     <ProjetView
-      v-if="currentView === 'projet'"
+      v-else-if="currentView === 'projet'"
       :project-id="currentProjectId"
       @updated="onProjectUpdated"
       @deleted="onProjectDeleted"
@@ -243,6 +254,7 @@ onMounted(loadProjects)
       v-else-if="currentView === 'timeline'"
       :project-id="currentProjectId"
     />
+    <StatsView v-else-if="currentView === 'stats'" />
   </main>
   </div><!-- fin .app-body -->
 
@@ -264,7 +276,7 @@ onMounted(loadProjects)
     </div>
     <div class="status-right">
       <template v-if="autoBackup.enabled">
-        <span class="status-backup-icon">🔄</span>
+        <span class="status-backup-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span>
         <span class="status-text" v-if="autoBackup.lastBackup">
           Backup auto : {{ formatTime(autoBackup.lastBackup) }}
         </span>
@@ -356,7 +368,7 @@ onMounted(loadProjects)
           <button class="btn-primary backup-create-btn" :disabled="backupWorking" @click="createBackup">
             {{ backupWorking ? '…' : '+ Créer une sauvegarde' }}
           </button>
-          <button class="backup-folder-btn" title="Ouvrir le dossier des sauvegardes" @click="window.api.backup.openFolder()">📁 Ouvrir le dossier</button>
+          <button class="backup-folder-btn" title="Ouvrir le dossier des sauvegardes" @click="window.api.backup.openFolder()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> Ouvrir le dossier</button>
         </div>
 
         <p v-if="backupMsg" class="backup-msg">{{ backupMsg }}</p>
@@ -369,7 +381,7 @@ onMounted(loadProjects)
             </div>
             <div class="backup-item-actions">
               <button class="backup-btn-restore" :disabled="backupWorking" @click="restoreBackup(b.name)">Restaurer</button>
-              <button class="backup-btn-delete" :disabled="backupWorking" @click="deleteBackup(b.name)">✕</button>
+              <button class="backup-btn-delete" :disabled="backupWorking" @click="deleteBackup(b.name)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
             </div>
           </div>
         </div>
@@ -383,206 +395,3 @@ onMounted(loadProjects)
   </div>
 </template>
 
-<style>
-/* Styles non-scoped pour la modal paramètres */
-.settings-modal {
-  min-width: 400px;
-}
-
-.settings-section {
-  margin: 8px 0 16px;
-}
-
-.settings-section h3 {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: var(--text-muted);
-  margin-bottom: 14px;
-}
-
-.theme-picker {
-  display: flex;
-  gap: 16px;
-}
-
-.theme-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 10px;
-  border: 2px solid var(--border);
-  border-radius: 10px;
-  background: none;
-  cursor: pointer;
-  transition: all 0.15s;
-  flex: 1;
-  color: var(--text);
-  font-size: 13px;
-}
-.theme-card:hover { border-color: var(--text-muted); }
-.theme-card.active { border-color: var(--accent); }
-
-.theme-preview {
-  width: 100%;
-  height: 70px;
-  border-radius: 6px;
-  overflow: hidden;
-  display: flex;
-  gap: 4px;
-  padding: 6px;
-}
-
-.theme-preview-dark { background: #1a1a2e; }
-.theme-preview-light { background: #f0ede8; }
-
-.tp-sidebar {
-  width: 28%;
-  border-radius: 3px;
-  background: rgba(233,69,96,0.25);
-}
-
-.theme-preview-dark .tp-sidebar { background: #16213e; }
-.theme-preview-light .tp-sidebar { background: #e4e0d9; }
-
-.tp-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding-top: 4px;
-}
-
-.tp-line {
-  height: 6px;
-  border-radius: 3px;
-}
-.theme-preview-dark .tp-line { background: #2a3a5c; }
-.theme-preview-light .tp-line { background: #cdc9c0; }
-.tp-line-short { width: 60%; }
-
-/* --- Backups --- */
-.backup-info {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin: 0 0 10px;
-}
-.backup-info code {
-  background: var(--input-bg);
-  border-radius: 3px;
-  padding: 1px 5px;
-  font-size: 11px;
-}
-.backup-actions-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 8px;
-}
-.backup-create-btn { flex-shrink: 0; }
-.backup-folder-btn {
-  background: var(--input-bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 12px;
-  padding: 6px 12px;
-  transition: border-color 0.15s;
-}
-.backup-folder-btn:hover { border-color: var(--accent); color: var(--text); }
-.backup-msg {
-  font-size: 12px;
-  color: var(--success, #4caf50);
-  margin: 4px 0 8px;
-}
-.backup-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 220px;
-  overflow-y: auto;
-  margin-top: 8px;
-}
-.backup-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--input-bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 7px 10px;
-  gap: 10px;
-}
-.backup-item-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.backup-item-date { font-size: 13px; }
-.backup-item-size { font-size: 11px; color: var(--text-muted); }
-.backup-item-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
-.backup-btn-restore {
-  background: var(--input-bg);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 12px;
-  padding: 4px 10px;
-  transition: border-color 0.15s;
-}
-.backup-btn-restore:hover:not(:disabled) { border-color: var(--accent); }
-.backup-btn-delete {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 14px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  transition: color 0.15s;
-}
-.backup-btn-delete:hover:not(:disabled) { color: var(--accent); }
-.backup-btn-restore:disabled, .backup-btn-delete:disabled { opacity: 0.4; cursor: default; }
-.backup-empty { font-size: 12px; color: var(--text-muted); margin: 8px 0 0; }
-.settings-modal { min-width: 480px; max-height: 85vh; overflow-y: auto; }
-
-/* --- Auto-backup --- */
-.autobackup-row { margin-bottom: 10px; }
-.autobackup-toggle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  font-size: 14px;
-}
-.autobackup-toggle input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-.autobackup-interval {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.autobackup-label { font-size: 13px; color: var(--text-muted); }
-.autobackup-interval select {
-  background: var(--input-bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 13px;
-  padding: 5px 10px;
-  cursor: pointer;
-  outline: none;
-}
-.autobackup-interval select:hover { border-color: var(--accent); }
-.autobackup-note { font-size: 11px; color: var(--text-muted); font-style: italic; }
-.autobackup-last { font-size: 12px; color: var(--text-muted); margin: 4px 0 0; }
-</style>

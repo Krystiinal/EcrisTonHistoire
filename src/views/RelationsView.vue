@@ -69,7 +69,7 @@ onMounted(load)
   <div class="view-inner">
     <h2>Relations entre personnages</h2>
 
-    <div v-if="relations.length === 0" style="color:var(--text-muted);margin-bottom:24px">
+    <div v-if="relations.length === 0" style="color:var(--color-muted);margin-bottom:24px">
       Aucune relation pour l'instant.
     </div>
     <div v-else id="relationships-list">
@@ -115,7 +115,7 @@ onMounted(load)
       <label class="full-width">Description
         <textarea v-model="relDesc" rows="2" placeholder="Décris la nature de la relation..."></textarea>
       </label>
-      <p v-if="errorMsg" style="color:var(--warning)">{{ errorMsg }}</p>
+      <p v-if="errorMsg" style="color:#f59e0b">{{ errorMsg }}</p>
       <button class="btn-primary" @click="addRelation">Ajouter la relation</button>
     </div>
   </div>
@@ -124,7 +124,7 @@ onMounted(load)
   <div v-if="editingRel" class="modal-overlay">
     <div class="modal">
       <h2>Modifier la relation</h2>
-      <p style="color:var(--text-muted);margin-bottom:16px">
+      <p style="color:var(--color-muted);margin-bottom:16px">
         {{ editingRel.character_a_name }} ↔ {{ editingRel.character_b_name }}
       </p>
       <label>Type de relation

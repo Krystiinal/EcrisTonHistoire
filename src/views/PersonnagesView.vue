@@ -13,7 +13,13 @@ const traits = ref([])
 const arcs = ref([])
 const importance = ref(0)
 const images = ref([])
+const links = ref([])
 const charRelations = ref([])
+
+// Ajout de lien
+const showLinkInput = ref(false)
+const newLinkUrl = ref('')
+const newLinkLabel = ref('')
 
 // Modal nouveau personnage
 const showModal = ref(false)
@@ -24,7 +30,8 @@ const modalRole = ref('secondaire')
 // Formulaire personnage
 const form = ref({
   name: '', name_translation: '', role: 'secondaire', origin: '',
-  age: '', gender: '', appearance: '', motivation: '', fears: '', secrets: '', notes: '', background: ''
+  age: '', gender: '', appearance: '', clothing: '', motivation: '', fears: '', likes: '', dislikes: '', secrets: '', notes: '', background: '',
+  home: '', social_level: ''
 })
 
 // Origines déjà utilisées dans ce projet (pour autocomplétion)
@@ -65,16 +72,22 @@ async function openCharacter(id) {
     age: char.age || '',
     gender: char.gender || '',
     appearance: char.appearance || '',
+    clothing: char.clothing || '',
     motivation: char.motivation || '',
     fears: char.fears || '',
     secrets: char.secrets || '',
     notes: char.notes || '',
     background: char.background || '',
+    home: char.home || '',
+    social_level: char.social_level || '',
+    likes: char.likes || '',
+    dislikes: char.dislikes || '',
   }
   importance.value = char.importance || 0
   traits.value = await window.api.traits.getAll(id)
   arcs.value = await window.api.arcs.getAll(id)
   images.value = await window.api.characterImages.getAll(id)
+  links.value = await window.api.characterLinks.getAll(id)
   const allRels = await window.api.relationships.getAll(props.projectId)
   charRelations.value = allRels.filter(r => r.character_a_id === id || r.character_b_id === id)
   currentTab.value = 'identity'
@@ -161,7 +174,7 @@ function flash(key) {
   if (!btn) return
   const orig = btn.textContent
   btn.textContent = '✓ Enregistré'
-  btn.style.background = 'var(--success)'
+  btn.style.background = 'var(--color-success)'
   setTimeout(() => { btn.textContent = orig; btn.style.background = '' }, 1500)
 }
 
@@ -177,8 +190,23 @@ async function deleteImage(img) {
   images.value = images.value.filter(i => i.id !== img.id)
 }
 
+async function addLink() {
+  const url = newLinkUrl.value.trim()
+  if (!url || !currentChar.value) return
+  const link = await window.api.characterLinks.add(currentChar.value.id, url, newLinkLabel.value.trim())
+  if (link) links.value.push(link)
+  newLinkUrl.value = ''
+  newLinkLabel.value = ''
+  showLinkInput.value = false
+}
+
+async function deleteLink(link) {
+  await window.api.characterLinks.delete(link.id)
+  links.value = links.value.filter(l => l.id !== link.id)
+}
+
 // Réinitialiser si le projet change
-watch(() => props.projectId, () => { currentChar.value = null; images.value = [] })
+watch(() => props.projectId, () => { currentChar.value = null; images.value = []; links.value = [] })
 </script>
 
 <template>
@@ -189,7 +217,7 @@ watch(() => props.projectId, () => { currentChar.value = null; images.value = []
 
       <div id="characters-list">
         <template v-if="grouped.length === 0">
-          <p style="padding:12px 16px;color:var(--text-muted);font-size:13px">Aucun personnage</p>
+          <p style="padding:12px 16px;color:var(--color-muted);font-size:13px">Aucun personnage</p>
         </template>
         <template v-for="group in grouped" :key="group.origin">
           <div class="char-origin-group">{{ group.origin }}</div>
@@ -268,14 +296,31 @@ watch(() => props.projectId, () => { currentChar.value = null; images.value = []
           <label class="full-width">Apparence physique
             <textarea v-model="form.appearance" rows="4" placeholder="Décris l'apparence..."></textarea>
           </label>
+          <label class="full-width">Vêtements
+            <textarea v-model="form.clothing" rows="3" placeholder="Comment s'habille-t-il/elle ?"></textarea>
+          </label>
           <label class="full-width">Motivations
             <textarea v-model="form.motivation" rows="3" placeholder="Qu'est-ce qui le/la motive ?"></textarea>
           </label>
           <label class="full-width">Peurs
             <textarea v-model="form.fears" rows="3" placeholder="Ses peurs, ses failles..."></textarea>
           </label>
+          <div class="form-grid">
+            <label>Aime
+              <textarea v-model="form.likes" rows="3" placeholder="Ce qu'il/elle aime..."></textarea>
+            </label>
+            <label>N'aime pas
+              <textarea v-model="form.dislikes" rows="3" placeholder="Ce qu'il/elle n'aime pas..."></textarea>
+            </label>
+          </div>
           <label class="full-width">Secrets
             <textarea v-model="form.secrets" rows="3" placeholder="Ce que les autres ignorent..."></textarea>
+          </label>
+          <label class="full-width">Lieux d'habitation
+            <textarea v-model="form.home" rows="3" placeholder="Où vit-il/elle ? Décris le lieu..."></textarea>
+          </label>
+          <label class="full-width">Niveau social
+            <textarea v-model="form.social_level" rows="2" placeholder="Ex: Noble, Paysan, Marchand, Esclave..."></textarea>
           </label>
           <label class="full-width">Notes libres
             <textarea v-model="form.notes" rows="3" placeholder="Tout ce qui ne rentre pas ailleurs..."></textarea>
@@ -336,7 +381,7 @@ watch(() => props.projectId, () => { currentChar.value = null; images.value = []
         <!-- Onglet Relations -->
         <div v-show="currentTab === 'relations'" class="tab-content active" style="display:flex">
           <p class="hint">Relations de ce personnage avec les autres.</p>
-          <div v-if="charRelations.length === 0" style="color:var(--text-muted);font-size:13px">
+          <div v-if="charRelations.length === 0" style="color:var(--color-muted);font-size:13px">
             Aucune relation enregistrée pour ce personnage.
           </div>
           <div v-else class="char-relations-list">
@@ -348,7 +393,7 @@ watch(() => props.projectId, () => { currentChar.value = null; images.value = []
               <div v-if="r.description" class="rel-description">{{ r.description }}</div>
             </div>
           </div>
-          <p style="font-size:12px;color:var(--text-muted);margin-top:12px">
+          <p style="font-size:12px;color:var(--color-muted);margin-top:12px">
             Pour modifier les relations, va dans l'onglet "Relations".
           </p>
         </div>
@@ -372,8 +417,46 @@ watch(() => props.projectId, () => { currentChar.value = null; images.value = []
               title="Ajouter une image"
             >
               <span>+</span>
-              <small>Ajouter</small>
+              <small>Image</small>
             </button>
+          </div>
+
+          <!-- Liens externes -->
+          <div class="inspiration-links">
+            <div class="inspiration-links-header">
+              <span class="inspi-links-title">Liens externes</span>
+              <button class="btn-add-link" @click="showLinkInput = !showLinkInput" title="Ajouter un lien">+ Ajouter</button>
+            </div>
+
+            <div v-if="showLinkInput" class="link-input-row">
+              <input
+                v-model="newLinkUrl"
+                type="url"
+                placeholder="https://..."
+                class="link-url-input"
+                @keydown.enter="addLink"
+                @keydown.escape="showLinkInput = false"
+              >
+              <input
+                v-model="newLinkLabel"
+                type="text"
+                placeholder="Label (optionnel)"
+                class="link-label-input"
+                @keydown.enter="addLink"
+                @keydown.escape="showLinkInput = false"
+              >
+              <button class="btn-confirm-link" @click="addLink">OK</button>
+            </div>
+
+            <div v-for="link in links" :key="link.id" class="inspi-link-item">
+              <button class="inspi-link-btn" @click="window.api.characterLinks.open(link.url)" :title="link.url">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                {{ link.label || link.url }}
+              </button>
+              <button class="inspi-link-delete" @click="deleteLink(link)" title="Supprimer">×</button>
+            </div>
+
+            <p v-if="links.length === 0 && !showLinkInput" class="hint" style="margin-top:4px">Aucun lien ajouté.</p>
           </div>
         </div>
       </template>

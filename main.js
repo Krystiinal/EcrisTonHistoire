@@ -1,5 +1,5 @@
 process.noDeprecation = true
-const { app, BrowserWindow, ipcMain, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, Menu, MenuItem } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const https = require('https')
@@ -53,6 +53,12 @@ function htmlToDocxParagraphs(html) {
     const tag = node.tagName?.toLowerCase()
     if (!tag) continue
 
+    // Saut de page
+    if (tag === 'div' && node.getAttribute?.('data-type') === 'page-break') {
+      result.push(new Paragraph({ children: [new PageBreak()] }))
+      continue
+    }
+
     // Niveau de titre
     const headingMap = { h1: HeadingLevel.HEADING_1, h2: HeadingLevel.HEADING_2, h3: HeadingLevel.HEADING_3 }
     const heading = headingMap[tag]
@@ -86,7 +92,8 @@ function createWindow() {
       nodeIntegration: false
     },
     titleBarStyle: 'default',
-    title: 'EcrisTonHistoire'
+    title: 'EcrisTonHistoire',
+    icon: path.join(__dirname, 'build/icon.ico'),
   })
 
   if (process.env.NODE_ENV === 'development') {
@@ -301,8 +308,23 @@ app.whenReady().then(async () => {
   ipcMain.handle('chapters:getAll', (_, projectId) => db.getAllChapters(projectId))
   ipcMain.handle('chapters:get', (_, id) => db.getChapter(id))
   ipcMain.handle('chapters:create', (_, data) => db.createChapter(data))
-  ipcMain.handle('chapters:update', (_, id, data) => db.updateChapter(id, data))
+  ipcMain.handle('chapters:update', (_, id, data) => {
+    const old = data.word_count !== undefined ? db.getChapter(id) : null
+    const result = db.updateChapter(id, data)
+    if (old && data.word_count !== undefined) {
+      const delta = data.word_count - (old.word_count || 0)
+      if (delta > 0) db.recordWords(result.project_id, delta, new Date().toISOString().split('T')[0])
+    }
+    return result
+  })
   ipcMain.handle('chapters:delete', (_, id) => db.deleteChapter(id))
+
+  // --- Statistiques ---
+  ipcMain.handle('stats:getSummary', () => db.getSummary())
+  ipcMain.handle('stats:getHistory', (_, days) => db.getHistory(days))
+  ipcMain.handle('stats:getGoals',   () => db.getGoals())
+  ipcMain.handle('stats:setGoal',    (_, type, target) => db.setGoal(type, target))
+  ipcMain.handle('stats:deleteGoal', (_, type) => db.deleteGoal(type))
 
   // --- Chronologie ---
   ipcMain.handle('timeline:getAll', (_, projectId) => db.getAllEvents(projectId))
@@ -394,6 +416,25 @@ app.whenReady().then(async () => {
     db.deleteImage(id)
   })
 
+  // --- Liens inspiration personnages ---
+  ipcMain.handle('links:getAll', (_, characterId) => db.getLinks(characterId))
+  ipcMain.handle('links:add', (_, characterId, url, label) => db.addLink(characterId, url, label))
+  ipcMain.handle('links:delete', (_, id) => db.deleteLink(id))
+  ipcMain.handle('links:open', (_, url) => require('electron').shell.openExternal(url))
+
+  // --- Image éditeur (insertion dans le contenu) ---
+  ipcMain.handle('editor:pickImage', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'] }]
+    })
+    if (result.canceled || !result.filePaths.length) return null
+    const src = result.filePaths[0]
+    const ext = path.extname(src).toLowerCase().slice(1)
+    const mime = ['jpg', 'jpeg'].includes(ext) ? 'jpeg' : ext === 'png' ? 'png' : ext === 'webp' ? 'webp' : ext === 'gif' ? 'gif' : 'jpeg'
+    return `data:image/${mime};base64,${fs.readFileSync(src).toString('base64')}`
+  })
+
   // --- Export Word ---
   ipcMain.handle('export:word', async (_, projectId) => {
     const project = db.getProject(projectId)
@@ -457,6 +498,42 @@ app.whenReady().then(async () => {
   })
 
   createWindow()
+
+  // Correcteur orthographique en français
+  mainWindow.webContents.session.setSpellCheckerLanguages(['fr-FR', 'fr'])
+
+  // Menu contextuel : suggestions orthographiques + copier/coller
+  mainWindow.webContents.on('context-menu', (_, params) => {
+    const menu = new Menu()
+
+    if (params.dictionarySuggestions?.length > 0) {
+      for (const suggestion of params.dictionarySuggestions) {
+        menu.append(new MenuItem({
+          label: suggestion,
+          click: () => mainWindow.webContents.replaceMisspelling(suggestion)
+        }))
+      }
+      menu.append(new MenuItem({ type: 'separator' }))
+    }
+
+    if (params.misspelledWord) {
+      menu.append(new MenuItem({
+        label: 'Ajouter au dictionnaire',
+        click: () => mainWindow.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord)
+      }))
+      menu.append(new MenuItem({ type: 'separator' }))
+    }
+
+    if (params.isEditable) {
+      menu.append(new MenuItem({ label: 'Couper', role: 'cut' }))
+      menu.append(new MenuItem({ label: 'Copier', role: 'copy' }))
+      menu.append(new MenuItem({ label: 'Coller', role: 'paste' }))
+    } else if (params.selectionText) {
+      menu.append(new MenuItem({ label: 'Copier', role: 'copy' }))
+    }
+
+    if (menu.items.length > 0) menu.popup()
+  })
 
   // Vérification de mise à jour
   mainWindow.webContents.once('did-finish-load', () => checkForUpdate())
