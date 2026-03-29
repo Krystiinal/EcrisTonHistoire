@@ -68,7 +68,7 @@ const FontSize = Extension.create({
   addCommands() {
     return {
       setFontSize: size => ({ chain }) =>
-        chain().setMark('textStyle', { fontSize: size ? `${size}px` : null }).run(),
+        chain().setMark('textStyle', { fontSize: size ? `${size}pt` : null }).run(),
       unsetFontSize: () => ({ chain }) =>
         chain().setMark('textStyle', { fontSize: null }).removeEmptyTextStyle().run(),
     }
@@ -93,7 +93,6 @@ const setSaveStatus = inject('setSaveStatus')
 const chapters = ref([])
 const currentChapter = ref(null)
 const chapterTitle = ref('')
-const editingTitle = ref(false)
 const saveStatus = ref('') // '', 'saving', 'saved'
 let saveTimer = null
 
@@ -358,6 +357,12 @@ const showParaSettings = ref(false)
 const indentSize  = ref(0)   // em
 const spaceBefore = ref(0)   // px
 const spaceAfter  = ref(12)  // px
+const titleFont   = ref('')      // police du titre de chapitre
+const partFont    = ref('')      // police du nom de partie
+const titleAlign  = ref('left')  // alignement du titre
+const partAlign   = ref('left')  // alignement de la partie
+const titleSize   = ref(26)      // taille (px) du titre de chapitre
+const partSize    = ref(13)      // taille (px) du nom de partie
 
 // ---- Zoom éditeur ----
 const zoomLevel = ref(100)
@@ -437,6 +442,12 @@ async function loadParaSettings() {
   indentSize.value  = s?.indentSize  ?? 0
   spaceBefore.value = s?.spaceBefore ?? 0
   spaceAfter.value  = s?.spaceAfter  ?? 12
+  titleFont.value   = s?.titleFont   ?? ''
+  partFont.value    = s?.partFont    ?? ''
+  titleAlign.value  = s?.titleAlign  ?? 'left'
+  partAlign.value   = s?.partAlign   ?? 'left'
+  titleSize.value   = s?.titleSize   ?? 26
+  partSize.value    = s?.partSize    ?? 13
 }
 
 function saveParaSettings() {
@@ -444,10 +455,16 @@ function saveParaSettings() {
     indentSize: indentSize.value,
     spaceBefore: spaceBefore.value,
     spaceAfter: spaceAfter.value,
+    titleFont: titleFont.value,
+    partFont: partFont.value,
+    titleAlign: titleAlign.value,
+    partAlign: partAlign.value,
+    titleSize: titleSize.value,
+    partSize: partSize.value,
   })
 }
 
-watch([indentSize, spaceBefore, spaceAfter], saveParaSettings)
+watch([indentSize, spaceBefore, spaceAfter, titleFont, partFont, titleAlign, partAlign, titleSize, partSize], saveParaSettings)
 
 // ---- Bloc personnalisé ----
 const inTextBlock = computed(() => editor.value?.isActive('textBlock') ?? false)
@@ -603,12 +620,12 @@ const editor = useEditor({
     saveTimer = setTimeout(() => autoSave(editor), 1500)
     const attrs = editor.getAttributes('textStyle')
     currentFont.value = attrs.fontFamily || ''
-    currentFontSize.value = attrs.fontSize ? attrs.fontSize.replace('px', '') : ''
+    currentFontSize.value = attrs.fontSize ? attrs.fontSize.replace(/[a-z]+$/i, '') : ''
   },
   onSelectionUpdate: ({ editor }) => {
     const attrs = editor.getAttributes('textStyle')
     currentFont.value = attrs.fontFamily || ''
-    currentFontSize.value = attrs.fontSize ? attrs.fontSize.replace('px', '') : ''
+    currentFontSize.value = attrs.fontSize ? attrs.fontSize.replace(/[a-z]+$/i, '') : ''
   },
 })
 
@@ -644,32 +661,55 @@ async function openChapter(ch) {
   const full = await window.api.chapters.get(ch.id)
   currentChapter.value = full
   chapterTitle.value = full.title
+  pagePartName.value = full.part || ''
+  activeHeaderBlock.value = null
   editor.value?.commands.setContent(full.content || '')
   editor.value?.commands.focus()
 }
+
+// ---- Édition directe en-tête page ----
+const pagePartName      = ref('')   // valeur locale du nom de partie sur la page
+const activeHeaderBlock = ref(null) // 'part' | 'title' | null
 
 async function saveTitle() {
   if (!currentChapter.value) return
   const title = chapterTitle.value.trim() || 'Sans titre'
   chapterTitle.value = title
-  editingTitle.value = false
   await window.api.chapters.update(currentChapter.value.id, { title })
   currentChapter.value.title = title
   const idx = chapters.value.findIndex(c => c.id === currentChapter.value.id)
   if (idx !== -1) chapters.value[idx].title = title
 }
 
-function startEditTitle() {
-  editingTitle.value = true
-  nextTick(() => {
-    document.querySelector('.chapter-title-input')?.focus()
-    document.querySelector('.chapter-title-input')?.select()
-  })
+async function savePagePart() {
+  const oldName = currentChapter.value?.part
+  const newName = pagePartName.value.trim()
+  if (!newName || newName === oldName) return
+  const toUpdate = chapters.value.filter(c => c.part === oldName)
+  await Promise.all(toUpdate.map(c => window.api.chapters.update(c.id, { part: newName })))
+  toUpdate.forEach(c => { c.part = newName })
+  if (currentChapter.value) currentChapter.value.part = newName
 }
 
-function cancelEditTitle() {
-  chapterTitle.value = currentChapter.value?.title || ''
-  editingTitle.value = false
+let headerBlurTimer = null
+
+function onHeaderFocus(block) {
+  clearTimeout(headerBlurTimer)
+  activeHeaderBlock.value = block
+}
+
+function onHeaderFocusIn() {
+  clearTimeout(headerBlurTimer)
+}
+
+function onHeaderBlur(saveCallback) {
+  clearTimeout(headerBlurTimer)
+  headerBlurTimer = setTimeout(() => {
+    const focused = document.activeElement
+    if (focused && focused.closest('.page-chapter-header')) return
+    activeHeaderBlock.value = null
+    if (saveCallback) saveCallback()
+  }, 150)
 }
 
 async function createChapter() {
@@ -1008,24 +1048,9 @@ onBeforeUnmount(async () => {
       </div>
 
       <template v-else>
-        <!-- Titre du chapitre -->
+        <!-- Barre supérieure : titre (lecture seule) + sauvegarde + zoom -->
         <div class="chapter-title-bar">
-          <template v-if="editingTitle">
-            <input
-              v-model="chapterTitle"
-              class="chapter-title-input"
-              placeholder="Titre du chapitre"
-              @blur="saveTitle"
-              @keydown.enter.prevent="saveTitle"
-              @keydown.escape.prevent="cancelEditTitle"
-            />
-          </template>
-          <template v-else>
-            <button class="chapter-title-edit-btn" @click="startEditTitle" title="Renommer le chapitre">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            </button>
-            <span class="chapter-title-text" @dblclick="startEditTitle">{{ chapterTitle || 'Sans titre' }}</span>
-          </template>
+          <span class="chapter-title-label">{{ chapterTitle || 'Sans titre' }}</span>
           <button
             class="chapter-save-btn"
             :class="saveStatus || 'idle'"
@@ -1203,6 +1228,20 @@ onBeforeUnmount(async () => {
                 <input type="range" v-model.number="spaceAfter" min="0" max="48" step="2">
                 <span class="para-val">{{ spaceAfter }}px</span>
               </label>
+              <label class="para-setting-row">
+                <span>Police titre chapitre</span>
+                <select v-model="titleFont" class="para-font-select">
+                  <option value="">Par défaut</option>
+                  <option v-for="f in allFonts.filter(f => f.value)" :key="f.value" :value="f.value" :style="{ fontFamily: f.value }">{{ f.label }}</option>
+                </select>
+              </label>
+              <label class="para-setting-row">
+                <span>Police nom de partie</span>
+                <select v-model="partFont" class="para-font-select">
+                  <option value="">Par défaut</option>
+                  <option v-for="f in allFonts.filter(f => f.value)" :key="f.value" :value="f.value" :style="{ fontFamily: f.value }">{{ f.label }}</option>
+                </select>
+              </label>
             </div>
           </div>
 
@@ -1244,7 +1283,7 @@ onBeforeUnmount(async () => {
               title="Taille de police"
             >
               <option value="">Par défaut</option>
-              <option v-for="s in FONT_SIZES" :key="s" :value="s">{{ s }}</option>
+              <option v-for="s in FONT_SIZES" :key="s" :value="s">{{ s }}pt</option>
             </select>
             <button class="toolbar-btn" title="Augmenter la taille" @click="applyFontSize(Math.min(200, (parseInt(currentFontSize) || 15) + 1))">+</button>
           </div>
@@ -1325,6 +1364,64 @@ onBeforeUnmount(async () => {
               zoom: zoomLevel / 100,
             }"
           >
+            <!-- En-tête chapitre sur la page -->
+            <div class="page-chapter-header" @focusin="onHeaderFocusIn">
+
+              <!-- Bloc Partie -->
+              <div v-if="currentChapter.part !== undefined" class="page-header-block">
+                <!-- Barre de format : s'affiche quand le bloc est actif -->
+                <div v-if="activeHeaderBlock === 'part'" class="header-format-bar">
+                  <select class="hfb-font-select" v-model="partFont">
+                    <option value="">Police…</option>
+                    <option v-for="f in allFonts.filter(f => f.value)" :key="f.value" :value="f.value" :style="{ fontFamily: f.value }">{{ f.label }}</option>
+                  </select>
+                  <select class="hfb-size-select" v-model.number="partSize">
+                    <option v-for="s in FONT_SIZES" :key="s" :value="s">{{ s }}pt</option>
+                  </select>
+                  <button class="hfb-align-btn" :class="{ active: partAlign === 'left' }"    @click="partAlign = 'left'"    title="Aligner à gauche"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg></button>
+                  <button class="hfb-align-btn" :class="{ active: partAlign === 'center' }"  @click="partAlign = 'center'"  title="Centrer"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg></button>
+                  <button class="hfb-align-btn" :class="{ active: partAlign === 'right' }"   @click="partAlign = 'right'"   title="Aligner à droite"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg></button>
+                  <button class="hfb-align-btn" :class="{ active: partAlign === 'justify' }" @click="partAlign = 'justify'" title="Justifier"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+                </div>
+                <input
+                  v-model="pagePartName"
+                  class="page-header-input page-part-input"
+                  placeholder="Nom de la partie…"
+                  :style="{ fontFamily: partFont || undefined, fontSize: (partSize * 4 / 3) + 'px', textAlign: partAlign }"
+                  @focus="onHeaderFocus('part')"
+                  @blur="onHeaderBlur(savePagePart)"
+                  @keydown.enter.prevent="$event.target.blur()"
+                />
+              </div>
+
+              <!-- Bloc Chapitre -->
+              <div class="page-header-block">
+                <div v-if="activeHeaderBlock === 'title'" class="header-format-bar">
+                  <select class="hfb-font-select" v-model="titleFont">
+                    <option value="">Police…</option>
+                    <option v-for="f in allFonts.filter(f => f.value)" :key="f.value" :value="f.value" :style="{ fontFamily: f.value }">{{ f.label }}</option>
+                  </select>
+                  <select class="hfb-size-select" v-model.number="titleSize">
+                    <option v-for="s in FONT_SIZES" :key="s" :value="s">{{ s }}pt</option>
+                  </select>
+                  <button class="hfb-align-btn" :class="{ active: titleAlign === 'left' }"    @click="titleAlign = 'left'"    title="Aligner à gauche"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg></button>
+                  <button class="hfb-align-btn" :class="{ active: titleAlign === 'center' }"  @click="titleAlign = 'center'"  title="Centrer"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg></button>
+                  <button class="hfb-align-btn" :class="{ active: titleAlign === 'right' }"   @click="titleAlign = 'right'"   title="Aligner à droite"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg></button>
+                  <button class="hfb-align-btn" :class="{ active: titleAlign === 'justify' }" @click="titleAlign = 'justify'" title="Justifier"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+                </div>
+                <input
+                  v-model="chapterTitle"
+                  class="page-header-input page-chapter-input"
+                  placeholder="Titre du chapitre…"
+                  :style="{ fontFamily: titleFont || undefined, fontSize: (titleSize * 4 / 3) + 'px', textAlign: titleAlign }"
+                  @focus="onHeaderFocus('title')"
+                  @blur="onHeaderBlur(saveTitle)"
+                  @keydown.enter.prevent="$event.target.blur()"
+                />
+              </div>
+
+            </div>
+
             <EditorContent :editor="editor" />
           </div>
         </div>
@@ -1820,50 +1917,112 @@ onBeforeUnmount(async () => {
   flex-shrink: 0;
 }
 
-.chapter-title-text {
+/* ---- Label titre dans la barre supérieure ---- */
+.chapter-title-label {
   flex: 1;
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--color-tx);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: default;
 }
 
-.chapter-title-edit-btn {
+/* ---- En-tête chapitre sur la page ---- */
+.page-chapter-header {
+  padding: 32px 60px 20px;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.page-header-block {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Barre de formatage inline */
+.header-format-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: var(--color-toolbar, var(--color-sidebar));
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+  width: fit-content;
+}
+
+.hfb-font-select {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-tx);
+  font-size: 12px;
+  padding: 2px 4px;
+  max-width: 130px;
+  cursor: pointer;
+}
+
+.hfb-size-select {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-tx);
+  font-size: 12px;
+  padding: 2px 4px;
+  width: 60px;
+  cursor: pointer;
+}
+
+.hfb-align-btn {
   display: flex;
   align-items: center;
   justify-content: center;
   background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--color-muted);
-  opacity: 0.4;
-  padding: 4px;
+  border: 1px solid transparent;
   border-radius: 4px;
-  flex-shrink: 0;
-  transition: opacity 0.15s;
+  color: var(--color-muted);
+  cursor: pointer;
+  padding: 3px 5px;
+  transition: all 0.15s;
 }
+.hfb-align-btn:hover  { background: var(--color-input); color: var(--color-tx); }
+.hfb-align-btn.active { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
 
-.chapter-title-bar:hover .chapter-title-edit-btn,
-.chapter-title-edit-btn:hover {
-  opacity: 1;
-}
-
-.chapter-title-input {
-  flex: 1;
-  background: none;
+/* Inputs éditables sur la page */
+.page-header-input {
+  background: transparent;
   border: none;
-  border-bottom: 2px solid var(--color-accent);
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--color-tx);
+  border-bottom: 1px solid transparent;
   outline: none;
-  padding-bottom: 2px;
+  color: var(--color-tx);
+  font-weight: 700;
+  width: 100%;
+  transition: border-color 0.15s;
+  padding: 2px 0;
 }
+.page-header-input:hover  { border-bottom-color: var(--color-border); }
+.page-header-input:focus  { border-bottom-color: var(--color-accent); }
+.page-header-input::placeholder { color: var(--color-muted); opacity: 0.4; font-weight: 400; }
 
-.chapter-title-input::placeholder { color: var(--color-muted); }
+.page-part-input   { color: var(--color-accent); }
+.page-chapter-input { }
+
+.para-font-select {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-tx);
+  font-size: 12px;
+  padding: 2px 4px;
+  max-width: 130px;
+}
 
 .chapter-save-btn {
   display: flex;

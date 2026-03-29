@@ -4,7 +4,7 @@ const path = require('path')
 const fs = require('fs')
 const Database = require('./database/db')
 const { autoUpdater } = require('electron-updater')
-const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, PageBreak } = require('docx')
+const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, PageBreak, UnderlineType, ShadingType } = require('docx')
 const { parse: parseHTML } = require('node-html-parser')
 
 let mainWindow
@@ -26,6 +26,7 @@ function parseInlineNodes(node, fmt = {}) {
         strike:    fmt.strike    || undefined,
         highlight: fmt.highlight ? 'yellow' : undefined,
         font:      fmt.font      || undefined,
+        size:      fmt.size      || undefined,
       }))
     } else {
       const tag = child.tagName?.toLowerCase()
@@ -35,20 +36,35 @@ function parseInlineNodes(node, fmt = {}) {
       else if (tag === 'u')                  next.underline = true
       else if (tag === 's')                  next.strike = true
       else if (tag === 'mark')               next.highlight = true
-      // police inline (textStyle de TipTap)
+      // styles inline (textStyle de TipTap)
       const style = child.getAttribute?.('style') || ''
-      const m = style.match(/font-family:\s*([^;]+)/)
-      if (m) next.font = m[1].trim().replace(/['"]/g, '')
+      const mFont = style.match(/font-family:\s*([^;]+)/)
+      if (mFont) next.font = mFont[1].trim().replace(/['"]/g, '')
+      // taille de police : supporte px et pt
+      const mSize = style.match(/font-size:\s*([\d.]+)(px|pt)/)
+      if (mSize) {
+        const val = parseFloat(mSize[1])
+        const unit = mSize[2]
+        // Convertir en demi-points pour docx (1pt = 2 demi-pts, 1px = 1.5 demi-pts)
+        next.size = Math.round(unit === 'pt' ? val * 2 : val * 1.5)
+      }
       runs.push(...parseInlineNodes(child, next))
     }
   }
   return runs
 }
 
-function htmlToDocxParagraphs(html) {
+function htmlToDocxParagraphs(html, paraSettings) {
   if (!html) return []
   const root = parseHTML(html)
   const result = []
+
+  // Conversion px → twips (1px ≈ 15 twips)
+  const spacingBefore = Math.round((paraSettings?.spaceBefore ?? 0) * 15)
+  const spacingAfter  = Math.round((paraSettings?.spaceAfter  ?? 12) * 15)
+  // Indent première ligne : 1em ≈ 720 twips (base 36pt)
+  const firstLineIndent = Math.round((paraSettings?.indentSize ?? 0) * 720)
+
   for (const node of root.childNodes) {
     const tag = node.tagName?.toLowerCase()
     if (!tag) continue
@@ -59,15 +75,16 @@ function htmlToDocxParagraphs(html) {
       continue
     }
 
-    // Niveau de titre
+    // Niveau de titre (h1-h3 dans le contenu de l'éditeur)
     const headingMap = { h1: HeadingLevel.HEADING_1, h2: HeadingLevel.HEADING_2, h3: HeadingLevel.HEADING_3 }
     const heading = headingMap[tag]
 
     // Alignement
     const style = node.getAttribute?.('style') || ''
-    let alignment = AlignmentType.LEFT
+    let alignment = AlignmentType.JUSTIFIED
     if      (style.includes('text-align: center'))  alignment = AlignmentType.CENTER
     else if (style.includes('text-align: right'))   alignment = AlignmentType.RIGHT
+    else if (style.includes('text-align: left'))    alignment = AlignmentType.LEFT
     else if (style.includes('text-align: justify')) alignment = AlignmentType.JUSTIFIED
 
     const runs = parseInlineNodes(node)
@@ -75,6 +92,8 @@ function htmlToDocxParagraphs(html) {
       children: runs.length ? runs : [new TextRun('')],
       heading:   heading   || undefined,
       alignment,
+      spacing: heading ? undefined : { before: spacingBefore, after: spacingAfter },
+      indent:  (heading || !firstLineIndent) ? undefined : { firstLine: firstLineIndent },
     }))
   }
   return result
@@ -453,16 +472,44 @@ app.whenReady().then(async () => {
     const project = db.getProject(projectId)
     if (!project) return false
 
+    // Lire les réglages de paragraphes
+    const settings = readSettings()
+    const paraSettings = (settings.paraSettings || {})[projectId] || {}
+
+    // Nettoyer le nom de police (ex: '"Georgia", serif' → 'Georgia')
+    function cleanFontName(fontStr) {
+      if (!fontStr) return undefined
+      const m = fontStr.match(/["']?([^"',]+)["']?/)
+      return m ? m[1].trim() : undefined
+    }
+    const titleFontName = cleanFontName(paraSettings.titleFont)
+    const partFontName  = cleanFontName(paraSettings.partFont)
+
     const chapters = db.getAllChapters(projectId)
     const children = []
 
-    // Titre du projet
+    // ---- Page de titre ----
+    children.push(new Paragraph({ text: '', spacing: { before: 2400 } }))
     children.push(new Paragraph({
-      text: project.name || 'Sans titre',
-      heading: HeadingLevel.TITLE,
+      children: [new TextRun({
+        text: project.name || 'Sans titre',
+        bold: true,
+        size: 64,
+        font: titleFontName,
+      })],
       alignment: AlignmentType.CENTER,
+      spacing: { after: 400 },
     }))
-    children.push(new Paragraph({ text: '' }))
+    if (project.author) {
+      children.push(new Paragraph({
+        children: [new TextRun({ text: project.author, size: 28, italics: true })],
+        alignment: AlignmentType.CENTER,
+      }))
+    }
+    // Saut de page après la page de titre
+    children.push(new Paragraph({ children: [new PageBreak()] }))
+
+    let lastPart = null
 
     for (let i = 0; i < chapters.length; i++) {
       const ch = db.getChapter(chapters[i].id)
@@ -472,23 +519,43 @@ app.whenReady().then(async () => {
         children.push(new Paragraph({ children: [new PageBreak()] }))
       }
 
-      // En-tête de partie si défini
-      if (ch.part) {
+      // En-tête de partie — seulement quand elle change
+      if (ch.part && ch.part !== lastPart) {
+        lastPart = ch.part
+        const partAlignMap = {
+          left: AlignmentType.LEFT, center: AlignmentType.CENTER,
+          right: AlignmentType.RIGHT, justify: AlignmentType.JUSTIFIED
+        }
         children.push(new Paragraph({
-          text: ch.part,
-          heading: HeadingLevel.HEADING_2,
-          alignment: AlignmentType.CENTER,
+          children: [new TextRun({
+            text: ch.part,
+            bold: true,
+            size: Math.round((paraSettings.partSize ?? 13) * 2),
+            font: partFontName,
+          })],
+          alignment: partAlignMap[paraSettings.partAlign] || AlignmentType.LEFT,
+          spacing: { before: 480, after: 240 },
         }))
       }
 
       // Titre du chapitre
+      const titleAlignMap = {
+        left: AlignmentType.LEFT, center: AlignmentType.CENTER,
+        right: AlignmentType.RIGHT, justify: AlignmentType.JUSTIFIED
+      }
       children.push(new Paragraph({
-        text: ch.title || 'Sans titre',
-        heading: HeadingLevel.HEADING_1,
+        children: [new TextRun({
+          text: ch.title || 'Sans titre',
+          bold: true,
+          size: Math.round((paraSettings.titleSize ?? 26) * 2),
+          font: titleFontName,
+        })],
+        alignment: titleAlignMap[paraSettings.titleAlign] || AlignmentType.LEFT,
+        spacing: { before: 240, after: 360 },
       }))
 
-      // Contenu HTML → paragraphes Word
-      const paras = htmlToDocxParagraphs(ch.content || '')
+      // Contenu HTML → paragraphes Word avec réglages
+      const paras = htmlToDocxParagraphs(ch.content || '', paraSettings)
       children.push(...paras)
     }
 
