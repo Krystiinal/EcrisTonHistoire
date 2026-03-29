@@ -19,10 +19,31 @@ const characters = ref([])
 const updateVersion  = ref(null)   // version disponible
 const updatePercent  = ref(null)   // null = pas en DL, 0-100 = en cours
 const updateReady    = ref(false)  // téléchargement terminé
+const updateStuck    = ref(false)  // aucune progression depuis 2 min
 
-window.api.app.onUpdateAvailable((version) => { updateVersion.value = version })
-window.api.app.onUpdateProgress((percent)  => { updatePercent.value = percent })
-window.api.app.onUpdateDownloaded(()       => { updateReady.value = true; updatePercent.value = null })
+let _updateStuckTimer = null
+
+window.api.app.onUpdateAvailable((version) => {
+  updateVersion.value = version
+  // Si aucune progression en 2 minutes → afficher lien manuel
+  _updateStuckTimer = setTimeout(() => {
+    if (!updateReady.value) updateStuck.value = true
+  }, 2 * 60 * 1000)
+})
+window.api.app.onUpdateProgress((percent) => {
+  updatePercent.value = percent
+  updateStuck.value = false
+  clearTimeout(_updateStuckTimer)
+  _updateStuckTimer = setTimeout(() => {
+    if (!updateReady.value) updateStuck.value = true
+  }, 2 * 60 * 1000)
+})
+window.api.app.onUpdateDownloaded(() => {
+  updateReady.value = true
+  updatePercent.value = null
+  updateStuck.value = false
+  clearTimeout(_updateStuckTimer)
+})
 
 // ---- Thème ----
 const theme = ref(localStorage.getItem('theme') || 'dark')
@@ -217,10 +238,16 @@ onMounted(loadProjects)
     <div class="update-progress-bar"><div class="update-progress-fill" :style="`width:${updatePercent}%`"></div></div>
     <span class="update-percent">{{ updatePercent }}%</span>
   </div>
-  <div v-else-if="updateVersion" class="update-banner">
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-    <span>v{{ updateVersion }} disponible — téléchargement en arrière-plan…</span>
-    <button class="update-banner-close" @click="updateVersion = null"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+  <div v-else-if="updateVersion" class="update-banner" :class="{ 'update-banner-warning': updateStuck }">
+    <svg class="update-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+    <span v-if="!updateStuck">v{{ updateVersion }} disponible — téléchargement en arrière-plan…</span>
+    <span v-else>Téléchargement bloqué —</span>
+    <a
+      v-if="updateStuck"
+      class="update-manual-link"
+      @click="window.api.characterLinks.open('https://github.com/Krystiinal/EcrisTonHistoire/releases/latest')"
+    >télécharger manuellement</a>
+    <button class="update-banner-close" @click="updateVersion = null; clearTimeout(_updateStuckTimer)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
   </div>
 
   <div class="app-body">

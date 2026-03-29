@@ -644,7 +644,10 @@ autoUpdater.on('update-available', (info) => {
 })
 
 autoUpdater.on('download-progress', (progress) => {
-  mainWindow?.webContents.send('app:update-progress', Math.round(progress.percent))
+  const percent = typeof progress.percent === 'number'
+    ? progress.percent
+    : (progress.total > 0 ? (progress.transferred / progress.total) * 100 : 0)
+  mainWindow?.webContents.send('app:update-progress', Math.round(percent))
 })
 
 autoUpdater.on('update-downloaded', () => {

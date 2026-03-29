@@ -238,6 +238,12 @@ label > input, label > textarea, label > select { display: block; width: 100%; m
 }
 .update-percent { font-size: 12px; opacity: .8; min-width: 30px; }
 .update-spin { animation: spin .8s linear infinite; flex-shrink: 0; }
+.update-banner-warning { background: #b45309; }
+.update-manual-link {
+  color: white; text-decoration: underline; cursor: pointer;
+  font-weight: 600; margin-left: 4px;
+}
+.update-manual-link:hover { opacity: .8; }
 
 /* ── Misc ──────────────────────────────────────────────────── */
 .hint { font-size: 12px; color: var(--color-muted); font-style: italic; margin-bottom: 10px; }
