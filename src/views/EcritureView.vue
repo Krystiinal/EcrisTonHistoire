@@ -1547,7 +1547,7 @@ onBeforeUnmount(async () => {
 /* ---- Popup lien ---- */
 .link-popup {
   position: fixed;
-  background: #16213e;
+  background: var(--color-sidebar);
   border: 1px solid var(--color-border);
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.6);
@@ -1573,7 +1573,7 @@ onBeforeUnmount(async () => {
 /* ---- Popup caractères spéciaux ---- */
 .special-chars-popup {
   position: fixed;
-  background: #16213e;
+  background: var(--color-sidebar);
   border: 1px solid var(--color-border);
   border-radius: 6px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.85);
@@ -2150,15 +2150,17 @@ onBeforeUnmount(async () => {
   background: none;
   border: none;
   border-radius: 4px;
-  color: var(--color-muted);
+  color: var(--color-tx);
+  opacity: 0.6;
   cursor: pointer;
   font-size: 13px;
   font-family: inherit;
   transition: all 0.15s;
   min-width: 28px;
 }
+.toolbar-btn:not(.active):not(:hover) { opacity: 0.6; }
 
-.toolbar-btn:hover { background: var(--color-card); color: var(--color-tx); }
+.toolbar-btn:hover { background: var(--color-card); color: var(--color-tx); opacity: 1; }
 .toolbar-btn.active { background: var(--color-accent); color: white; }
 
 /* ---- Estimation pages ---- */

@@ -4,26 +4,26 @@
 :root {
   --color-accent:       #e94560;
   --color-accent-hover: #c73652;
-  --color-bg:           #1a1a2e;
-  --color-sidebar:      #16213e;
-  --color-card:         #0f3460;
-  --color-border:       #2a3a5c;
-  --color-input:        #1e2d4a;
+  --color-bg:           #1B3C53;
+  --color-sidebar:      #152e42;
+  --color-card:         #234C6A;
+  --color-border:       #2e5470;
+  --color-input:        #1e3f57;
   --color-tx:           #eaeaea;
-  --color-muted:        #8892a4;
+  --color-muted:        #9aacba;
   --color-success:      #4caf50;
   --font-sans: 'Inter', 'Segoe UI', system-ui, sans-serif;
 }
 
 /* ── Thème clair ───────────────────────────────────────────── */
 .theme-light {
-  --color-bg:      #f0ede8;
-  --color-sidebar: #e4e0d9;
-  --color-card:    #ffffff;
-  --color-border:  #cdc9c0;
-  --color-input:   #faf9f7;
-  --color-tx:      #1a1a2e;
-  --color-muted:   #6b6a75;
+  --color-bg:      #F5EFE6;
+  --color-sidebar: #EDE5D8;
+  --color-card:    #FAF6F0;
+  --color-border:  #d4c8b8;
+  --color-input:   #faf7f3;
+  --color-tx:      #1B3C53;
+  --color-muted:   #7a8a96;
 }
 
 /* ── Reset & base ──────────────────────────────────────────── */
