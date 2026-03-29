@@ -228,6 +228,18 @@ app.whenReady().then(async () => {
     applyAutoBackup(enabled, interval)
   })
 
+  // --- Réglages paragraphe (par projet) ---
+  ipcMain.handle('para:get', (_, projectId) => {
+    const s = readSettings()
+    return (s.paraSettings || {})[projectId] || null
+  })
+  ipcMain.handle('para:set', (_, projectId, settings) => {
+    const s = readSettings()
+    const paraSettings = s.paraSettings || {}
+    paraSettings[projectId] = settings
+    writeSettings({ paraSettings })
+  })
+
   // --- Backups ---
   ipcMain.handle('backup:create', async () => {
     const now = new Date()

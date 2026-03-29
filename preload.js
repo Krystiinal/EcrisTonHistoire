@@ -96,6 +96,11 @@ contextBridge.exposeInMainWorld('api', {
     onDone:      (cb)   => ipcRenderer.on('autobackup:done', (_, date) => cb(date)),
   },
 
+  para: {
+    get: (projectId)            => ipcRenderer.invoke('para:get', projectId),
+    set: (projectId, settings)  => ipcRenderer.invoke('para:set', projectId, settings),
+  },
+
   // Export
   export: {
     word: (projectId) => ipcRenderer.invoke('export:word', projectId),

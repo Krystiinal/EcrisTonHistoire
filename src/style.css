@@ -151,6 +151,7 @@ html, body, #app {
   background: none; border: 1px solid var(--color-border); border-radius: 4px;
   color: var(--color-muted); font-size: 12px; padding: 6px 10px;
   cursor: pointer; width: 100%; transition: all .15s;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
 }
 .settings-btn:hover { background: var(--color-card); color: var(--color-tx); }
 

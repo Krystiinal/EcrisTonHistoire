@@ -93,6 +93,7 @@ const setSaveStatus = inject('setSaveStatus')
 const chapters = ref([])
 const currentChapter = ref(null)
 const chapterTitle = ref('')
+const editingTitle = ref(false)
 const saveStatus = ref('') // '', 'saving', 'saved'
 let saveTimer = null
 
@@ -158,9 +159,126 @@ const showChapterModal = ref(false)
 const modalTitle = ref('')
 const modalPart = ref('')
 
+// ---- Renommage de partie ----
+const editingPart     = ref(null)   // nom actuel de la partie en cours d'édition
+const editingPartName = ref('')     // valeur du champ input
+
+function startEditPart(partName) {
+  editingPart.value     = partName
+  editingPartName.value = partName
+  nextTick(() => document.getElementById('part-edit-input')?.select())
+}
+
+async function confirmEditPart() {
+  const oldName = editingPart.value
+  const newName = editingPartName.value.trim()
+  editingPart.value = null
+  if (!newName || newName === oldName) return
+  // Mettre à jour tous les chapitres de cette partie
+  const toUpdate = chapters.value.filter(c => c.part === oldName)
+  await Promise.all(toUpdate.map(c => window.api.chapters.update(c.id, { part: newName })))
+  toUpdate.forEach(c => { c.part = newName })
+}
+
+function cancelEditPart() {
+  editingPart.value = null
+}
+
 const existingParts = computed(() =>
   [...new Set(chapters.value.map(c => c.part).filter(Boolean))]
 )
+
+// ---- Rechercher / Remplacer dans l'éditeur ----
+const showFindReplace  = ref(false)
+const findQuery        = ref('')
+const replaceQuery     = ref('')
+const findCaseSensitive = ref(false)
+const findMatchCount   = ref(0)
+const findCurrentIndex = ref(0)
+let   _findMatches     = []
+
+function _buildMatches() {
+  _findMatches = []
+  if (!editor.value || !findQuery.value.trim()) { findMatchCount.value = 0; return }
+  const flags = findCaseSensitive.value ? 'g' : 'gi'
+  const regex = new RegExp(findQuery.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags)
+  editor.value.state.doc.descendants((node, pos) => {
+    if (!node.isText) return
+    let m
+    regex.lastIndex = 0
+    while ((m = regex.exec(node.text)) !== null)
+      _findMatches.push({ from: pos + m.index, to: pos + m.index + m[0].length })
+  })
+  findMatchCount.value = _findMatches.length
+}
+
+function _selectMatch(idx) {
+  if (!editor.value || !_findMatches.length) return
+  const { from, to } = _findMatches[idx]
+  editor.value.chain().focus().setTextSelection({ from, to }).run()
+  editor.value.view.dispatch(editor.value.view.state.tr.scrollIntoView())
+}
+
+function findNext() {
+  _buildMatches()
+  if (!_findMatches.length) return
+  findCurrentIndex.value = (findCurrentIndex.value + 1) % _findMatches.length
+  _selectMatch(findCurrentIndex.value)
+}
+
+function findPrev() {
+  _buildMatches()
+  if (!_findMatches.length) return
+  findCurrentIndex.value = (findCurrentIndex.value - 1 + _findMatches.length) % _findMatches.length
+  _selectMatch(findCurrentIndex.value)
+}
+
+function doReplaceNext() {
+  _buildMatches()
+  if (!_findMatches.length) return
+  const idx = Math.min(findCurrentIndex.value, _findMatches.length - 1)
+  const { from, to } = _findMatches[idx]
+  const { tr, schema } = editor.value.state
+  replaceQuery.value ? tr.replaceWith(from, to, schema.text(replaceQuery.value)) : tr.delete(from, to)
+  editor.value.view.dispatch(tr)
+  _buildMatches()
+  if (_findMatches.length) { findCurrentIndex.value = Math.min(idx, _findMatches.length - 1); _selectMatch(findCurrentIndex.value) }
+}
+
+function doReplaceAll() {
+  _buildMatches()
+  if (!_findMatches.length) return
+  const { tr, schema } = editor.value.state
+  for (const { from, to } of [..._findMatches].reverse())
+    replaceQuery.value ? tr.replaceWith(from, to, schema.text(replaceQuery.value)) : tr.delete(from, to)
+  editor.value.view.dispatch(tr)
+  _buildMatches()
+  findCurrentIndex.value = 0
+}
+
+function openFindReplace() {
+  showFindReplace.value = true
+  nextTick(() => document.getElementById('find-replace-input')?.focus())
+}
+
+function closeFindReplace() {
+  showFindReplace.value = false
+  findQuery.value = ''
+  _findMatches = []
+  findMatchCount.value = 0
+  editor.value?.commands.focus()
+}
+
+watch(findQuery, () => {
+  _buildMatches()
+  findCurrentIndex.value = 0
+  if (_findMatches.length) _selectMatch(0)
+})
+
+watch(findCaseSensitive, () => {
+  _buildMatches()
+  if (_findMatches.length) _selectMatch(Math.min(findCurrentIndex.value, _findMatches.length - 1))
+})
 
 // ---- Recherche ----
 const showSearch = ref(false)
@@ -314,26 +432,19 @@ function savePageEst() {
 }
 watch(pageEst, savePageEst, { deep: true })
 
-function paraSettingsKey() { return `para_settings_${props.projectId}` }
-
-function loadParaSettings() {
-  const saved = localStorage.getItem(paraSettingsKey())
-  if (saved) {
-    const s = JSON.parse(saved)
-    indentSize.value  = s.indentSize  ?? 0
-    spaceBefore.value = s.spaceBefore ?? 0
-    spaceAfter.value  = s.spaceAfter  ?? 12
-  } else {
-    indentSize.value = 0; spaceBefore.value = 0; spaceAfter.value = 12
-  }
+async function loadParaSettings() {
+  const s = await window.api.para.get(props.projectId)
+  indentSize.value  = s?.indentSize  ?? 0
+  spaceBefore.value = s?.spaceBefore ?? 0
+  spaceAfter.value  = s?.spaceAfter  ?? 12
 }
 
 function saveParaSettings() {
-  localStorage.setItem(paraSettingsKey(), JSON.stringify({
+  window.api.para.set(props.projectId, {
     indentSize: indentSize.value,
     spaceBefore: spaceBefore.value,
     spaceAfter: spaceAfter.value,
-  }))
+  })
 }
 
 watch([indentSize, spaceBefore, spaceAfter], saveParaSettings)
@@ -540,10 +651,25 @@ async function openChapter(ch) {
 async function saveTitle() {
   if (!currentChapter.value) return
   const title = chapterTitle.value.trim() || 'Sans titre'
+  chapterTitle.value = title
+  editingTitle.value = false
   await window.api.chapters.update(currentChapter.value.id, { title })
   currentChapter.value.title = title
   const idx = chapters.value.findIndex(c => c.id === currentChapter.value.id)
   if (idx !== -1) chapters.value[idx].title = title
+}
+
+function startEditTitle() {
+  editingTitle.value = true
+  nextTick(() => {
+    document.querySelector('.chapter-title-input')?.focus()
+    document.querySelector('.chapter-title-input')?.select()
+  })
+}
+
+function cancelEditTitle() {
+  chapterTitle.value = currentChapter.value?.title || ''
+  editingTitle.value = false
 }
 
 async function createChapter() {
@@ -627,7 +753,7 @@ watch(() => props.projectId, async () => {
   currentChapter.value = null
   editor.value?.commands.setContent('')
   loadZoom()
-  loadParaSettings()
+  await loadParaSettings()
   await loadChapters()
 }, { immediate: true })
 
@@ -642,6 +768,13 @@ function onCtrlS(e) {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault()
     forceSaveNow()
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+    e.preventDefault()
+    if (currentChapter.value) openFindReplace()
+  }
+  if (e.key === 'Escape' && showFindReplace.value) {
+    closeFindReplace()
   }
 }
 
@@ -807,7 +940,29 @@ onBeforeUnmount(async () => {
             <p class="chapter-empty-hint">Aucun chapitre. Crée ton premier chapitre pour commencer à écrire.</p>
           </template>
           <template v-for="group in grouped" :key="group.part ?? '__nopart__'">
-            <div v-if="group.part" class="chapter-part-header">{{ group.part }}</div>
+            <div v-if="group.part" class="chapter-part-header">
+              <template v-if="editingPart === group.part">
+                <input
+                  id="part-edit-input"
+                  v-model="editingPartName"
+                  class="part-edit-input"
+                  @keydown.enter.prevent="confirmEditPart"
+                  @keydown.escape.prevent="cancelEditPart"
+                  @blur="confirmEditPart"
+                  @click.stop
+                />
+              </template>
+              <template v-else>
+                <span class="part-name">{{ group.part }}</span>
+                <button
+                  class="part-edit-btn"
+                  title="Modifier le nom de la partie"
+                  @click.stop="startEditPart(group.part)"
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </button>
+              </template>
+            </div>
             <div
               v-for="ch in group.items"
               :key="ch.id"
@@ -855,13 +1010,22 @@ onBeforeUnmount(async () => {
       <template v-else>
         <!-- Titre du chapitre -->
         <div class="chapter-title-bar">
-          <input
-            v-model="chapterTitle"
-            class="chapter-title-input"
-            placeholder="Titre du chapitre"
-            @blur="saveTitle"
-            @keydown.enter.prevent="saveTitle"
-          >
+          <template v-if="editingTitle">
+            <input
+              v-model="chapterTitle"
+              class="chapter-title-input"
+              placeholder="Titre du chapitre"
+              @blur="saveTitle"
+              @keydown.enter.prevent="saveTitle"
+              @keydown.escape.prevent="cancelEditTitle"
+            />
+          </template>
+          <template v-else>
+            <button class="chapter-title-edit-btn" @click="startEditTitle" title="Renommer le chapitre">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
+            <span class="chapter-title-text" @dblclick="startEditTitle">{{ chapterTitle || 'Sans titre' }}</span>
+          </template>
           <button
             class="chapter-save-btn"
             :class="saveStatus || 'idle'"
@@ -1002,6 +1166,18 @@ onBeforeUnmount(async () => {
 
           <div class="toolbar-sep"></div>
 
+          <!-- Rechercher / Remplacer -->
+          <div class="toolbar-group">
+            <button
+              class="toolbar-btn"
+              :class="{ active: showFindReplace }"
+              title="Rechercher / Remplacer (Ctrl+F)"
+              @click="showFindReplace ? closeFindReplace() : openFindReplace()"
+            ><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button>
+          </div>
+
+          <div class="toolbar-sep"></div>
+
           <!-- Réglages paragraphe -->
           <div class="toolbar-group" style="position:relative">
             <button
@@ -1099,6 +1275,44 @@ onBeforeUnmount(async () => {
             </div>
           </template>
         </div>
+
+        <!-- Panneau Rechercher / Remplacer -->
+        <Teleport to="body">
+          <div v-if="showFindReplace" class="find-replace-panel" @click.stop @keydown.stop>
+            <div class="find-replace-header">
+              <span class="find-replace-title">Rechercher / Remplacer</span>
+              <button class="find-close-btn" @click="closeFindReplace" title="Fermer (Échap)">✕</button>
+            </div>
+            <div class="find-replace-row">
+              <input
+                id="find-replace-input"
+                v-model="findQuery"
+                placeholder="Rechercher…"
+                class="find-input"
+                @keydown.enter.prevent="findNext"
+                @keydown.shift.enter.prevent="findPrev"
+                @keydown.escape.prevent="closeFindReplace"
+              />
+              <button class="find-case-btn" :class="{ active: findCaseSensitive }" @click="findCaseSensitive = !findCaseSensitive" title="Respecter la casse">Aa</button>
+              <button class="find-nav-btn" @click="findPrev" :disabled="!findMatchCount" title="Précédent (Shift+Entrée)">↑</button>
+              <button class="find-nav-btn" @click="findNext" :disabled="!findMatchCount" title="Suivant (Entrée)">↓</button>
+              <span class="find-count" :class="{ 'find-no-result': findQuery && !findMatchCount }">
+                {{ findQuery ? (findMatchCount ? `${findCurrentIndex + 1} / ${findMatchCount}` : 'Aucun résultat') : '' }}
+              </span>
+            </div>
+            <div class="find-replace-row">
+              <input
+                v-model="replaceQuery"
+                placeholder="Remplacer par…"
+                class="find-input"
+                @keydown.enter.prevent="doReplaceNext"
+                @keydown.escape.prevent="closeFindReplace"
+              />
+              <button class="find-action-btn" @click="doReplaceNext" :disabled="!findMatchCount">Remplacer</button>
+              <button class="find-action-btn" @click="doReplaceAll" :disabled="!findMatchCount">Tout remplacer</button>
+            </div>
+          </div>
+        </Teleport>
 
         <!-- Zone d'écriture -->
         <div ref="editorWrapperRef" class="editor-page-wrapper" @click="showFontDropdown = false; showParaSettings = false; showPageEst = false">
@@ -1475,6 +1689,41 @@ onBeforeUnmount(async () => {
   letter-spacing: 1px;
   color: var(--color-accent);
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.part-name { flex: 1; }
+.part-edit-btn {
+  opacity: 0.3;
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  cursor: pointer;
+  padding: 2px 3px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+.part-edit-btn:hover {
+  opacity: 1;
+  background: rgba(233, 69, 96, 0.12);
+}
+.part-edit-input {
+  flex: 1;
+  background: var(--color-input);
+  border: 1px solid var(--color-accent);
+  border-radius: 4px;
+  color: var(--color-accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  outline: none;
+  width: 100%;
 }
 
 .chapter-status-wrap {
@@ -1571,14 +1820,47 @@ onBeforeUnmount(async () => {
   flex-shrink: 0;
 }
 
+.chapter-title-text {
+  flex: 1;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-tx);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+
+.chapter-title-edit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-muted);
+  opacity: 0.4;
+  padding: 4px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+}
+
+.chapter-title-bar:hover .chapter-title-edit-btn,
+.chapter-title-edit-btn:hover {
+  opacity: 1;
+}
+
 .chapter-title-input {
   flex: 1;
   background: none;
   border: none;
+  border-bottom: 2px solid var(--color-accent);
   font-size: 18px;
   font-weight: 600;
   color: var(--color-tx);
   outline: none;
+  padding-bottom: 2px;
 }
 
 .chapter-title-input::placeholder { color: var(--color-muted); }
@@ -2147,4 +2429,82 @@ onBeforeUnmount(async () => {
 .status-picker-item.active { background: var(--color-input); font-weight: 600; }
 .spi-icon { font-size: 13px; width: 16px; text-align: center; }
 .spi-label { font-size: 12px; color: var(--color-tx); }
+
+/* ── Panneau Rechercher / Remplacer ── */
+.find-replace-panel {
+  position: fixed;
+  top: 80px;
+  right: 24px;
+  z-index: 9999;
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 380px;
+}
+.find-replace-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+.find-replace-title { font-size: 12px; font-weight: 600; color: var(--color-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.find-close-btn { background: none; border: none; color: var(--color-muted); font-size: 16px; cursor: pointer; padding: 0 2px; line-height: 1; }
+.find-close-btn:hover { color: var(--color-tx); }
+.find-replace-row { display: flex; align-items: center; gap: 6px; }
+.find-input {
+  flex: 1;
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-tx);
+  font-size: 13px;
+  padding: 5px 10px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.find-input:focus { border-color: var(--color-accent); }
+.find-count { font-size: 11px; color: var(--color-muted); white-space: nowrap; min-width: 70px; text-align: right; }
+.find-no-result { color: #e94560; }
+.find-case-btn {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 7px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.find-case-btn.active { background: var(--color-accent); border-color: var(--color-accent); color: #fff; }
+.find-nav-btn {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  color: var(--color-muted);
+  font-size: 14px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.find-nav-btn:hover:not(:disabled) { border-color: var(--color-accent); color: var(--color-accent); }
+.find-nav-btn:disabled { opacity: 0.35; cursor: default; }
+.find-action-btn {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-tx);
+  font-size: 12px;
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.find-action-btn:hover:not(:disabled) { border-color: var(--color-accent); color: var(--color-accent); }
+.find-action-btn:disabled { opacity: 0.35; cursor: default; }
 </style>
