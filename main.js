@@ -4,16 +4,17 @@ const path = require('path')
 const fs = require('fs')
 const Database = require('./database/db')
 const { autoUpdater } = require('electron-updater')
-const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, PageBreak, UnderlineType, ShadingType } = require('docx')
+const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, PageBreak, UnderlineType, ShadingType, DropCapType } = require('docx')
 const { parse: parseHTML } = require('node-html-parser')
 
 let mainWindow
 let db
 
 // ---- HTML → éléments docx ----
-function parseInlineNodes(node, fmt = {}) {
+function parseInlineNodes(nodeOrChildren, fmt = {}) {
   const runs = []
-  for (const child of node.childNodes) {
+  const children = Array.isArray(nodeOrChildren) ? nodeOrChildren : nodeOrChildren.childNodes
+  for (const child of children) {
     if (child.nodeType === 3) {
       // Nœud texte
       const text = child.text
@@ -59,11 +60,13 @@ function htmlToDocxParagraphs(html, paraSettings) {
   const root = parseHTML(html)
   const result = []
 
-  // Conversion px → twips (1px ≈ 15 twips)
+  // Conversion px → twips (1pt = 20 twips, 1px ≈ 15 twips à 96dpi)
   const spacingBefore = Math.round((paraSettings?.spaceBefore ?? 0) * 15)
   const spacingAfter  = Math.round((paraSettings?.spaceAfter  ?? 12) * 15)
-  // Indent première ligne : 1em ≈ 720 twips (base 36pt)
-  const firstLineIndent = Math.round((paraSettings?.indentSize ?? 0) * 720)
+  // Indent première ligne : 1em ≈ 220 twips (base 11pt = 220 twips)
+  const firstLineIndent = Math.round((paraSettings?.indentSize ?? 0) * 220)
+  // Interligne : l'éditeur utilise line-height 1.9 → 456 unités docx (240 = simple)
+  const lineSpacing = Math.round(1.9 * 240) // 456
 
   for (const node of root.childNodes) {
     const tag = node.tagName?.toLowerCase()
@@ -87,13 +90,58 @@ function htmlToDocxParagraphs(html, paraSettings) {
     else if (style.includes('text-align: left'))    alignment = AlignmentType.LEFT
     else if (style.includes('text-align: justify')) alignment = AlignmentType.JUSTIFIED
 
+    // Styles de paragraphe individuels (écrasent les réglages globaux si présents)
+    const mIndent = style.match(/text-indent:\s*([\d.]+)em/)
+    const mBefore = style.match(/margin-top:\s*([\d.]+)px/)
+    const mAfter  = style.match(/margin-bottom:\s*([\d.]+)px/)
+    const paraIndent   = mIndent ? Math.round(parseFloat(mIndent[1]) * 220) : firstLineIndent
+    const paraSpBefore = mBefore ? Math.round(parseFloat(mBefore[1]) * 15)  : spacingBefore
+    const paraSpAfter  = mAfter  ? Math.round(parseFloat(mAfter[1])  * 15)  : spacingAfter
+
+    // Lettrine : détecter un span[data-drop-cap] en début de paragraphe
+    const childNodes = Array.from(node.childNodes)
+    const firstSpan  = childNodes[0]
+    const dcLines    = parseInt(firstSpan?.getAttribute?.('data-drop-cap') ?? '0')
+    if (!heading && dcLines > 0) {
+      const letter     = firstSpan.text || ''
+      const dcStyle    = firstSpan.getAttribute('style') || ''
+      const dcFontM    = dcStyle.match(/font-family:\s*([^;]+)/)
+      const dcFont     = dcFontM ? dcFontM[1].trim().replace(/['"]/g, '') : undefined
+      // Paragraphe 1 : lettre seule avec propriétés de cadre (lettrine Word)
+      // Word calcule automatiquement la taille depuis lines + corps du texte — ne pas forcer size
+      result.push(new Paragraph({
+        frame: {
+          dropCap: DropCapType.DROP,
+          lines:   dcLines,
+          wrap:    'around',
+          anchor:  { horizontal: 'text', vertical: 'text' },
+          space:   { horizontal: 113 },  // ~0.08" d'espace entre la lettrine et le texte
+        },
+        children: [new TextRun({ text: letter, font: dcFont || undefined })],
+        spacing: { before: 0, after: 0 },
+      }))
+      // Paragraphe 2 : reste du texte (sans retrait 1ère ligne)
+      const remainingRuns = parseInlineNodes(childNodes.slice(1))
+      result.push(new Paragraph({
+        children:  remainingRuns.length ? remainingRuns : [new TextRun('')],
+        alignment,
+        spacing:   { before: 0, after: paraSpAfter, line: lineSpacing, lineRule: 'auto' },
+      }))
+      continue
+    }
+
     const runs = parseInlineNodes(node)
     result.push(new Paragraph({
       children: runs.length ? runs : [new TextRun('')],
       heading:   heading   || undefined,
       alignment,
-      spacing: heading ? undefined : { before: spacingBefore, after: spacingAfter },
-      indent:  (heading || !firstLineIndent) ? undefined : { firstLine: firstLineIndent },
+      spacing: heading ? undefined : {
+        before:   paraSpBefore,
+        after:    paraSpAfter,
+        line:     lineSpacing,
+        lineRule: 'auto',
+      },
+      indent:  (heading || !paraIndent) ? undefined : { firstLine: paraIndent },
     }))
   }
   return result
@@ -350,6 +398,8 @@ app.whenReady().then(async () => {
     return result
   })
   ipcMain.handle('chapters:delete', (_, id) => db.deleteChapter(id))
+  ipcMain.handle('chapters:reorder', (_, orders) => db.reorderChapters(orders))
+  ipcMain.handle('chapters:insertAt', (_, data) => db.insertChapterAt(data))
 
   // --- Statistiques ---
   ipcMain.handle('stats:getSummary', () => db.getSummary())
@@ -636,7 +686,7 @@ app.whenReady().then(async () => {
 })
 
 // ---- electron-updater ----
-autoUpdater.autoDownload = true
+autoUpdater.autoDownload = false
 autoUpdater.autoInstallOnAppQuit = true
 
 autoUpdater.on('update-available', (info) => {

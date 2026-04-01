@@ -1,6 +1,6 @@
 {
   "name": "ecristonhistoire",
-  "version": "0.1.5",
+  "version": "0.1.7",
   "description": "Application d'écriture - personnages et développement narratif",
   "author": "Krystiinal",
   "main": "main.js",

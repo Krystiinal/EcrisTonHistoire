@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, inject, nextTick } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
-import { Node, Extension } from '@tiptap/core'
+import { Node, Extension, Mark, mergeAttributes } from '@tiptap/core'
 import { TextSelection } from 'prosemirror-state'
 import StarterKit from '@tiptap/starter-kit'
 
@@ -46,8 +46,22 @@ const PageBreakNode = Node.create({
 })
 
 import Underline from '@tiptap/extension-underline'
-import TextStyle from '@tiptap/extension-text-style'
+import TextStyleBase from '@tiptap/extension-text-style'
 import FontFamily from '@tiptap/extension-font-family'
+
+// Étendre TextStyle pour ignorer les spans de lettrine (évite le cumul font-size au rechargement)
+const TextStyle = TextStyleBase.extend({
+  parseHTML() {
+    return [{
+      tag: 'span',
+      getAttrs: el => {
+        if (el.hasAttribute('data-drop-cap')) return false
+        if (!el.hasAttribute('style')) return false
+        return {}
+      },
+    }]
+  },
+})
 
 // Extension taille de police (basée sur TextStyle)
 const FontSize = Extension.create({
@@ -74,6 +88,70 @@ const FontSize = Extension.create({
     }
   },
 })
+// ---- Extension Lettrine (Drop Cap) ----
+const DropCap = Mark.create({
+  name: 'dropCap',
+
+  addAttributes() {
+    return {
+      lines: {
+        default: 2,
+        parseHTML: el => parseInt(el.getAttribute('data-drop-cap') || '2'),
+      },
+      font: {
+        default: null,
+        parseHTML: el => {
+          const m = (el.getAttribute('style') || '').match(/font-family:\s*([^;]+)/)
+          return m ? m[1].trim().replace(/['"]/g, '') : null
+        },
+      },
+    }
+  },
+
+  parseHTML() {
+    return [{ tag: 'span[data-drop-cap]' }]
+  },
+
+  renderHTML({ mark }) {
+    const lines = mark.attrs.lines || 2
+    const font  = mark.attrs.font  || null
+    // Taille : N lignes × hauteur de ligne (~1.5em) ÷ cap-height (~0.72) ≈ N × 2.08em
+    const fontSize  = `${(lines * 2.1).toFixed(1)}em`
+    const fontStyle = font ? `font-family: ${font};` : ''
+    return ['span', mergeAttributes({
+      'data-drop-cap': String(lines),
+      style: `float:left; font-size:${fontSize}; line-height:0.72; margin-right:0.08em; ${fontStyle}`,
+    }), 0]
+  },
+})
+
+// ---- Extension styles de paragraphe par paragraphe ----
+const ParagraphIndentStyle = Extension.create({
+  name: 'paragraphIndentStyle',
+  addGlobalAttributes() {
+    return [{
+      types: ['paragraph'],
+      attributes: {
+        indent: {
+          default: null,
+          parseHTML: el => el.style.textIndent   || null,
+          renderHTML: a => a.indent   ? { style: `text-indent: ${a.indent}` }   : {},
+        },
+        spBefore: {
+          default: null,
+          parseHTML: el => el.style.marginTop    || null,
+          renderHTML: a => a.spBefore ? { style: `margin-top: ${a.spBefore}` }  : {},
+        },
+        spAfter: {
+          default: null,
+          parseHTML: el => el.style.marginBottom || null,
+          renderHTML: a => a.spAfter  ? { style: `margin-bottom: ${a.spAfter}` }: {},
+        },
+      },
+    }]
+  },
+})
+
 import TextAlign from '@tiptap/extension-text-align'
 import CharacterCount from '@tiptap/extension-character-count'
 import Highlight from '@tiptap/extension-highlight'
@@ -151,6 +229,8 @@ function onDocClick() {
   showStyleDropdown.value = false
   showLinkPopup.value = false
   showSpecialChars.value = false
+  ctxMenu.value = null
+  showDropCapPanel.value = false
 }
 
 // Modal nouveau chapitre / partie
@@ -466,6 +546,51 @@ function saveParaSettings() {
 
 watch([indentSize, spaceBefore, spaceAfter, titleFont, partFont, titleAlign, partAlign, titleSize, partSize], saveParaSettings)
 
+// ---- Réglages du paragraphe courant ----
+const curIndent      = ref(0)
+const curSpaceBefore = ref(0)
+const curSpaceAfter  = ref(0)
+
+function readCurrentParaAttrs() {
+  if (!editor.value) return
+  const attrs = editor.value.getAttributes('paragraph')
+  curIndent.value      = attrs.indent   ? parseFloat(attrs.indent)   : indentSize.value
+  curSpaceBefore.value = attrs.spBefore ? parseFloat(attrs.spBefore) : spaceBefore.value
+  curSpaceAfter.value  = attrs.spAfter  ? parseFloat(attrs.spAfter)  : spaceAfter.value
+}
+
+function applyParaToCurrent() {
+  if (!editor.value) return
+  editor.value.chain().focus().updateAttributes('paragraph', {
+    indent:   curIndent.value !== 0      ? `${curIndent.value}em`      : null,
+    spBefore: curSpaceBefore.value !== 0 ? `${curSpaceBefore.value}px` : null,
+    spAfter:  curSpaceAfter.value !== 0  ? `${curSpaceAfter.value}px`  : null,
+  }).run()
+}
+
+function applyParaToAll() {
+  if (!editor.value) return
+  const { state, view } = editor.value
+  const tr = state.tr
+  state.doc.descendants((node, pos) => {
+    if (node.type.name === 'paragraph') {
+      tr.setNodeMarkup(pos, null, {
+        ...node.attrs,
+        indent:   curIndent.value !== 0      ? `${curIndent.value}em`      : null,
+        spBefore: curSpaceBefore.value !== 0 ? `${curSpaceBefore.value}px` : null,
+        spAfter:  curSpaceAfter.value !== 0  ? `${curSpaceAfter.value}px`  : null,
+      })
+    }
+  })
+  view.dispatch(tr)
+  // Mettre à jour aussi les réglages globaux (pour l'export Word et les nouveaux chapitres)
+  indentSize.value  = curIndent.value
+  spaceBefore.value = curSpaceBefore.value
+  spaceAfter.value  = curSpaceAfter.value
+}
+
+watch(showParaSettings, (val) => { if (val) readCurrentParaAttrs() })
+
 // ---- Bloc personnalisé ----
 const inTextBlock = computed(() => editor.value?.isActive('textBlock') ?? false)
 const textBlockAttrs = computed(() => editor.value?.getAttributes('textBlock') ?? { marginLeft: 60, marginRight: 60 })
@@ -597,6 +722,8 @@ const editor = useEditor({
     TextStyle,
     FontFamily,
     FontSize,
+    DropCap,
+    ParagraphIndentStyle,
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     CharacterCount,
     Highlight.configure({ multicolor: false }),
@@ -626,6 +753,7 @@ const editor = useEditor({
     const attrs = editor.getAttributes('textStyle')
     currentFont.value = attrs.fontFamily || ''
     currentFontSize.value = attrs.fontSize ? attrs.fontSize.replace(/[a-z]+$/i, '') : ''
+    if (showParaSettings.value) readCurrentParaAttrs()
   },
 })
 
@@ -734,6 +862,162 @@ async function deleteChapter(ch) {
     editor.value?.commands.setContent('')
   }
   await loadChapters()
+}
+
+// ---- Drag & drop chapitres ----
+const dragSrcId = ref(null)
+const dragOverId = ref(null)
+
+function onDragStart(e, ch) {
+  dragSrcId.value = ch.id
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', String(ch.id))
+}
+
+function onDragOver(e, ch) {
+  e.preventDefault()
+  e.dataTransfer.dropEffect = 'move'
+  dragOverId.value = ch.id
+}
+
+function onDragLeave() {
+  dragOverId.value = null
+}
+
+async function onDrop(e, targetCh) {
+  e.preventDefault()
+  dragOverId.value = null
+  if (!dragSrcId.value || dragSrcId.value === targetCh.id) { dragSrcId.value = null; return }
+
+  // Construire le nouvel ordre : on retire la source et l'insère à la position de la cible
+  const list = [...chapters.value]
+  const srcIdx = list.findIndex(c => c.id === dragSrcId.value)
+  const tgtIdx = list.findIndex(c => c.id === targetCh.id)
+  if (srcIdx === -1 || tgtIdx === -1) { dragSrcId.value = null; return }
+
+  const [moved] = list.splice(srcIdx, 1)
+  list.splice(tgtIdx, 0, moved)
+
+  // Renuméroter automatiquement les chapitres "Chapitre N"
+  renumberChapters(list)
+
+  const orders = list.map((c, i) => ({ id: c.id, position: i + 1 }))
+  await window.api.chapters.reorder(orders)
+  dragSrcId.value = null
+  await loadChapters()
+}
+
+function onDragEnd() {
+  dragSrcId.value = null
+  dragOverId.value = null
+}
+
+// ---- Auto-renumérotation ----
+// Renumérotation séquentielle de tous les chapitres dont le titre est "Chapitre N"
+function renumberChapters(list) {
+  let counter = 1
+  for (const ch of list) {
+    if (/^chapitre\s+\d+$/i.test(ch.title.trim())) {
+      const newTitle = `Chapitre ${counter}`
+      if (ch.title !== newTitle) {
+        ch.title = newTitle
+        window.api.chapters.update(ch.id, { title: newTitle })
+      }
+    }
+    counter++
+  }
+}
+
+// ---- Menu contextuel ----
+const ctxMenu = ref(null) // { x, y, ch }
+
+function onChapterContextMenu(e, ch) {
+  e.preventDefault()
+  ctxMenu.value = { x: e.clientX, y: e.clientY, ch }
+}
+
+function closeCtxMenu() {
+  ctxMenu.value = null
+}
+
+async function ctxInsertBefore(ch) {
+  closeCtxMenu()
+  const idx = chapters.value.findIndex(c => c.id === ch.id)
+  const insertPos = idx + 1  // position 1-based: same slot as current chapter
+  const newCh = await window.api.chapters.insertAt({
+    project_id: props.projectId,
+    title: `Chapitre ${insertPos}`,
+    part: ch.part ?? null,
+    position: insertPos,
+  })
+  await loadChapters()
+  renumberChapters(chapters.value)
+  await openChapter(chapters.value.find(c => c.id === newCh.id) ?? newCh)
+}
+
+async function ctxInsertAfter(ch) {
+  closeCtxMenu()
+  const idx = chapters.value.findIndex(c => c.id === ch.id)
+  const insertPos = idx + 2  // position after current chapter (1-based)
+  const newCh = await window.api.chapters.insertAt({
+    project_id: props.projectId,
+    title: `Chapitre ${insertPos}`,
+    part: ch.part ?? null,
+    position: insertPos,
+  })
+  await loadChapters()
+  renumberChapters(chapters.value)
+  await openChapter(chapters.value.find(c => c.id === newCh.id) ?? newCh)
+}
+
+// ---- Lettrine (Drop Cap) ----
+const showDropCapPanel = ref(false)
+const dropCapPanelStyle = ref({})
+const dropCapLines = ref(2)
+const dropCapFont  = ref('')
+
+function openDropCapPanel(e) {
+  const rect = e.currentTarget.getBoundingClientRect()
+  dropCapPanelStyle.value = { top: (rect.bottom + 4) + 'px', left: rect.left + 'px' }
+  // Lire les attrs actuels si une lettrine est déjà active
+  if (editor.value?.isActive('dropCap')) {
+    const attrs = editor.value.getAttributes('dropCap')
+    dropCapLines.value = attrs.lines || 2
+    dropCapFont.value  = attrs.font  || ''
+  }
+  showDropCapPanel.value = !showDropCapPanel.value
+}
+
+function applyDropCap() {
+  if (!editor.value) return
+  const { state, view } = editor.value
+  const { $from } = state.selection
+  const paraStart = $from.start($from.depth)
+  const paraSize  = $from.parent.content.size
+  if (paraSize === 0) return
+  const markType = state.schema.marks.dropCap
+  const tr = state.tr
+  // Retirer toute lettrine existante dans ce paragraphe
+  tr.removeMark(paraStart, paraStart + paraSize, markType)
+  // Appliquer sur le premier caractère uniquement
+  tr.addMark(paraStart, paraStart + 1, markType.create({
+    lines: dropCapLines.value,
+    font:  dropCapFont.value || null,
+  }))
+  view.dispatch(tr)
+  showDropCapPanel.value = false
+}
+
+function removeDropCap() {
+  if (!editor.value) return
+  const { state, view } = editor.value
+  const { $from } = state.selection
+  const paraStart = $from.start($from.depth)
+  const paraSize  = $from.parent.content.size
+  const tr = state.tr
+  tr.removeMark(paraStart, paraStart + paraSize, state.schema.marks.dropCap)
+  view.dispatch(tr)
+  showDropCapPanel.value = false
 }
 
 // ---- Export Word ----
@@ -1007,9 +1291,24 @@ onBeforeUnmount(async () => {
               v-for="ch in group.items"
               :key="ch.id"
               class="chapter-item"
-              :class="{ active: currentChapter?.id === ch.id }"
+              :class="{
+                active: currentChapter?.id === ch.id,
+                'drag-over': dragOverId === ch.id,
+              }"
+              draggable="true"
               @click="openChapter(ch)"
+              @contextmenu.prevent="onChapterContextMenu($event, ch)"
+              @dragstart="onDragStart($event, ch)"
+              @dragover="onDragOver($event, ch)"
+              @dragleave="onDragLeave"
+              @drop="onDrop($event, ch)"
+              @dragend="onDragEnd"
             >
+              <!-- Poignée drag -->
+              <div class="chapter-drag-handle" title="Glisser pour réordonner">
+                <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="2" r="1.2"/><circle cx="7" cy="2" r="1.2"/><circle cx="3" cy="7" r="1.2"/><circle cx="7" cy="7" r="1.2"/><circle cx="3" cy="12" r="1.2"/><circle cx="7" cy="12" r="1.2"/></svg>
+              </div>
+
               <!-- Statut -->
               <div class="chapter-status-wrap" @click.stop>
                 <button
@@ -1129,6 +1428,57 @@ onBeforeUnmount(async () => {
 
           <div class="toolbar-sep"></div>
 
+          <!-- Lettrine -->
+          <div class="toolbar-group" style="position:relative">
+            <button
+              class="toolbar-btn drop-cap-btn"
+              :class="{ active: editor.isActive('dropCap') }"
+              title="Lettrine (début de paragraphe)"
+              @click.stop="openDropCapPanel($event)"
+            >
+              <span class="drop-cap-icon">A</span><span class="drop-cap-icon-rest">bc</span>
+            </button>
+            <Teleport to="body">
+              <div v-if="showDropCapPanel" class="drop-cap-panel" :style="dropCapPanelStyle" @click.stop>
+                <div class="dcp-title">Lettrine</div>
+                <!-- Nombre de lignes -->
+                <div class="dcp-row">
+                  <span class="dcp-label">Hauteur</span>
+                  <div class="dcp-lines">
+                    <button
+                      v-for="n in [1,2,3,4]" :key="n"
+                      class="dcp-line-btn"
+                      :class="{ active: dropCapLines === n }"
+                      @click="dropCapLines = n"
+                    >{{ n }} ligne{{ n > 1 ? 's' : '' }}</button>
+                  </div>
+                </div>
+                <!-- Police -->
+                <div class="dcp-row">
+                  <span class="dcp-label">Police</span>
+                  <select v-model="dropCapFont" class="dcp-select">
+                    <option value="">Par défaut</option>
+                    <option v-for="f in allFonts.filter(f => f.value)" :key="f.value" :value="f.value">{{ f.label }}</option>
+                  </select>
+                </div>
+                <!-- Aperçu -->
+                <div class="dcp-preview" :style="{
+                  fontFamily: dropCapFont || 'inherit',
+                  fontSize: `${dropCapLines * 2.1}em`,
+                  lineHeight: `${dropCapLines * 1.47}em`,
+                }">A</div>
+                <!-- Actions -->
+                <div class="dcp-actions">
+                  <button class="btn-primary btn-sm" @click="applyDropCap">Appliquer</button>
+                  <button v-if="editor.isActive('dropCap')" class="btn-danger btn-sm" @click="removeDropCap">Retirer</button>
+                </div>
+              </div>
+              <div v-if="showDropCapPanel" class="drop-cap-backdrop" @click="showDropCapPanel = false" />
+            </Teleport>
+          </div>
+
+          <div class="toolbar-sep"></div>
+
           <!-- Listes -->
           <div class="toolbar-group">
             <button class="toolbar-btn" :class="{ active: editor.isActive('bulletList') }" title="Liste à puces" @click="editor.chain().focus().toggleBulletList().run()">• −</button>
@@ -1213,21 +1563,26 @@ onBeforeUnmount(async () => {
             >¶</button>
             <div v-if="showParaSettings" class="para-settings-popover" @click.stop>
               <p class="para-settings-title">Réglages de paragraphe</p>
+              <div class="para-settings-subtitle">Paragraphe courant</div>
               <label class="para-setting-row">
                 <span>Retrait 1ère ligne</span>
-                <input type="range" v-model.number="indentSize" min="0" max="5" step="0.5">
-                <span class="para-val">{{ indentSize }}em</span>
+                <input type="range" v-model.number="curIndent" min="0" max="5" step="0.5" @input="applyParaToCurrent">
+                <span class="para-val">{{ curIndent }}em</span>
               </label>
               <label class="para-setting-row">
                 <span>Espace avant</span>
-                <input type="range" v-model.number="spaceBefore" min="0" max="48" step="2">
-                <span class="para-val">{{ spaceBefore }}px</span>
+                <input type="range" v-model.number="curSpaceBefore" min="0" max="48" step="2" @input="applyParaToCurrent">
+                <span class="para-val">{{ curSpaceBefore }}px</span>
               </label>
               <label class="para-setting-row">
                 <span>Espace après</span>
-                <input type="range" v-model.number="spaceAfter" min="0" max="48" step="2">
-                <span class="para-val">{{ spaceAfter }}px</span>
+                <input type="range" v-model.number="curSpaceAfter" min="0" max="48" step="2" @input="applyParaToCurrent">
+                <span class="para-val">{{ curSpaceAfter }}px</span>
               </label>
+              <button class="para-apply-all-btn" @click="applyParaToAll">
+                Appliquer à tous les paragraphes
+              </button>
+              <div class="para-settings-sep"></div>
               <label class="para-setting-row">
                 <span>Police titre chapitre</span>
                 <select v-model="titleFont" class="para-font-select">
@@ -1469,6 +1824,26 @@ onBeforeUnmount(async () => {
         <span class="spi-label">{{ s.label }}</span>
       </button>
     </div>
+  </Teleport>
+
+  <!-- Menu contextuel chapitres -->
+  <Teleport to="body">
+    <div
+      v-if="ctxMenu"
+      class="ctx-menu"
+      :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
+      @click.stop
+    >
+      <button class="ctx-menu-item" @click="ctxInsertBefore(ctxMenu.ch)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Insérer un chapitre avant
+      </button>
+      <button class="ctx-menu-item" @click="ctxInsertAfter(ctxMenu.ch)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Insérer un chapitre après
+      </button>
+    </div>
+    <div v-if="ctxMenu" class="ctx-menu-backdrop" @click="closeCtxMenu" @contextmenu.prevent="closeCtxMenu" />
   </Teleport>
 
   <!-- Modal nouveau chapitre -->
@@ -1862,6 +2237,12 @@ onBeforeUnmount(async () => {
   background: var(--color-card);
   border-left-color: var(--color-accent);
 }
+.chapter-item.drag-over {
+  border-top: 2px solid var(--color-accent);
+  background: var(--color-card);
+}
+.chapter-item[draggable="true"] { cursor: grab; }
+.chapter-item[draggable="true"]:active { cursor: grabbing; }
 
 .chapter-item-info {
   display: flex;
@@ -1898,6 +2279,144 @@ onBeforeUnmount(async () => {
 
 .chapter-item:hover .chapter-item-delete { opacity: 1; }
 .chapter-item-delete:hover { color: var(--color-accent); }
+
+.chapter-drag-handle {
+  color: var(--color-muted);
+  opacity: 0;
+  flex-shrink: 0;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  transition: opacity 0.15s;
+}
+.chapter-item:hover .chapter-drag-handle { opacity: 0.5; }
+.chapter-drag-handle:hover { opacity: 1 !important; }
+
+/* ---- Menu contextuel ---- */
+.ctx-menu {
+  position: fixed;
+  z-index: 9999;
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  padding: 4px;
+  min-width: 200px;
+}
+.ctx-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 12px;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  color: var(--color-tx);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+.ctx-menu-item:hover { background: var(--color-border); }
+.ctx-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+}
+
+/* ---- Lettrine ---- */
+.drop-cap-btn {
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
+  font-weight: bold;
+  line-height: 1;
+}
+.drop-cap-icon {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+}
+.drop-cap-icon-rest {
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.drop-cap-panel {
+  position: fixed;
+  z-index: 9999;
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.25);
+  padding: 14px 16px;
+  min-width: 240px;
+}
+.dcp-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-tx);
+  margin-bottom: 12px;
+}
+.dcp-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.dcp-label {
+  font-size: 11px;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.dcp-lines {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.dcp-line-btn {
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-tx);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.dcp-line-btn.active,
+.dcp-line-btn:hover { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
+.dcp-select {
+  background: var(--color-input, var(--color-bg));
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  color: var(--color-tx);
+  font-size: 12px;
+  padding: 5px 8px;
+  width: 100%;
+}
+.dcp-preview {
+  float: left;
+  color: var(--color-tx);
+  margin-right: 8px;
+  margin-bottom: 4px;
+  line-height: 1;
+  font-weight: 700;
+  min-width: 40px;
+  text-align: center;
+}
+.dcp-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  clear: both;
+}
+.drop-cap-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+}
 
 /* ---- Éditeur ---- */
 .ecriture-editor-panel {
@@ -2318,6 +2837,32 @@ onBeforeUnmount(async () => {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin: 0 0 4px;
+}
+.para-settings-subtitle {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: -4px;
+}
+.para-apply-all-btn {
+  width: 100%;
+  padding: 6px 10px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  color: var(--color-tx);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s;
+}
+.para-apply-all-btn:hover { background: var(--color-border); }
+.para-settings-sep {
+  height: 1px;
+  background: var(--color-border);
+  margin: 0 -4px;
 }
 
 .para-setting-row {

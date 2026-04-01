@@ -533,6 +533,27 @@ class DB {
     this._run(`DELETE FROM chapters WHERE id = ?`, [id])
   }
 
+  reorderChapters(orders) {
+    // orders = [{ id, position }, ...]
+    for (const { id, position } of orders) {
+      this._run(`UPDATE chapters SET position = ? WHERE id = ?`, [position, id])
+    }
+  }
+
+  insertChapterAt(data) {
+    // Insère un chapitre à une position donnée en décalant les suivants
+    const { project_id, title, part, position } = data
+    this._run(
+      `UPDATE chapters SET position = position + 1 WHERE project_id = ? AND position >= ?`,
+      [project_id, position]
+    )
+    const id = this._run(
+      `INSERT INTO chapters (project_id, title, part, position) VALUES (?, ?, ?, ?)`,
+      [project_id, title, part ?? null, position]
+    )
+    return this.getChapter(id)
+  }
+
   // ---- Statistiques d'écriture ----
 
   recordWords(projectId, delta, date) {

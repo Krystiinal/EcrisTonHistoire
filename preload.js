@@ -49,6 +49,8 @@ contextBridge.exposeInMainWorld('api', {
     update: (id, data) => ipcRenderer.invoke('chapters:update', id, data),
     delete: (id) => ipcRenderer.invoke('chapters:delete', id),
     search: (projectId, query) => ipcRenderer.invoke('chapters:search', projectId, query),
+    reorder: (orders) => ipcRenderer.invoke('chapters:reorder', orders),
+    insertAt: (data) => ipcRenderer.invoke('chapters:insertAt', data),
   },
 
   // Liminaires
