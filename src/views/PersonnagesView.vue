@@ -193,11 +193,15 @@ async function deleteImage(img) {
 async function addLink() {
   const url = newLinkUrl.value.trim()
   if (!url || !currentChar.value) return
-  const link = await window.api.characterLinks.add(currentChar.value.id, url, newLinkLabel.value.trim())
-  if (link) links.value.push(link)
+  await window.api.characterLinks.add(currentChar.value.id, url, newLinkLabel.value.trim())
+  links.value = await window.api.characterLinks.getAll(currentChar.value.id)
   newLinkUrl.value = ''
   newLinkLabel.value = ''
   showLinkInput.value = false
+}
+
+function openLink(url) {
+  window.api.characterLinks.open(url)
 }
 
 async function deleteLink(link) {
@@ -400,26 +404,6 @@ watch(() => props.projectId, () => { currentChar.value = null; images.value = []
 
         <!-- Onglet Inspirations -->
         <div v-show="currentTab === 'images'" class="tab-content active" style="display:flex">
-          <p class="hint">Ajoute jusqu'à 4 images d'inspiration pour ce personnage.</p>
-          <div class="inspiration-grid">
-            <div
-              v-for="img in images"
-              :key="img.id"
-              class="inspiration-slot"
-            >
-              <img :src="img.dataUrl" class="inspiration-img" alt="Inspiration">
-              <button class="inspiration-delete" @click="deleteImage(img)" title="Supprimer">×</button>
-            </div>
-            <button
-              v-if="images.length < 4"
-              class="inspiration-add"
-              @click="pickImage"
-              title="Ajouter une image"
-            >
-              <span>+</span>
-              <small>Image</small>
-            </button>
-          </div>
 
           <!-- Liens externes -->
           <div class="inspiration-links">
@@ -449,7 +433,7 @@ watch(() => props.projectId, () => { currentChar.value = null; images.value = []
             </div>
 
             <div v-for="link in links" :key="link.id" class="inspi-link-item">
-              <button class="inspi-link-btn" @click="window.api.characterLinks.open(link.url)" :title="link.url">
+              <button class="inspi-link-btn" @click="openLink(link.url)" :title="link.url">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                 {{ link.label || link.url }}
               </button>
@@ -457,6 +441,27 @@ watch(() => props.projectId, () => { currentChar.value = null; images.value = []
             </div>
 
             <p v-if="links.length === 0 && !showLinkInput" class="hint" style="margin-top:4px">Aucun lien ajouté.</p>
+          </div>
+
+          <p class="hint">Ajoute jusqu'à 4 images d'inspiration pour ce personnage.</p>
+          <div class="inspiration-grid">
+            <div
+              v-for="img in images"
+              :key="img.id"
+              class="inspiration-slot"
+            >
+              <img :src="img.dataUrl" class="inspiration-img" alt="Inspiration">
+              <button class="inspiration-delete" @click="deleteImage(img)" title="Supprimer">×</button>
+            </div>
+            <button
+              v-if="images.length < 4"
+              class="inspiration-add"
+              @click="pickImage"
+              title="Ajouter une image"
+            >
+              <span>+</span>
+              <small>Image</small>
+            </button>
           </div>
         </div>
       </template>
