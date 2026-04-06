@@ -138,6 +138,44 @@ window.api.autobackup.onDone((date) => {
 
 onMounted(loadAutoBackupSettings)
 
+// ---- Aide ----
+const showHelp = ref(false)
+const helpTab  = ref('ecriture')
+const helpTabs = [
+  { id: 'ecriture',    label: 'Écriture' },
+  { id: 'chapitres',   label: 'Chapitres' },
+  { id: 'personnages', label: 'Personnages' },
+  { id: 'timeline',    label: 'Frise' },
+  { id: 'export',      label: 'Export' },
+  { id: 'sauvegarde',  label: 'Sauvegardes' },
+]
+
+// ---- Rapport de bug ----
+const showBugReport = ref(false)
+const bugForm = ref({ type: 'bug', title: '', description: '', steps: '', expected: '' })
+
+function openBugReport() {
+  bugForm.value = { type: 'bug', title: '', description: '', steps: '', expected: '' }
+  showBugReport.value = true
+}
+
+function submitBugReport() {
+  const f = bugForm.value
+  if (!f.title.trim()) return
+
+  const typeLabel = { bug: 'Bug', suggestion: 'Suggestion', amélioration: 'Amélioration' }[f.type] || f.type
+  let body = `## Description\n${f.description || '(non renseigné)'}\n\n`
+  if (f.type === 'bug') {
+    body += `## Étapes pour reproduire\n${f.steps || '(non renseigné)'}\n\n`
+    body += `## Comportement attendu\n${f.expected || '(non renseigné)'}\n\n`
+  }
+  body += `## Informations\n- Type : ${typeLabel}\n- Version : 0.1.7\n- OS : Windows`
+
+  const url = `https://github.com/Krystiinal/EcrisTonHistoire/issues/new?title=${encodeURIComponent(`[${typeLabel}] ${f.title}`)}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent(f.type === 'bug' ? 'bug' : 'enhancement')}`
+  window.api.characterLinks.open(url)
+  showBugReport.value = false
+}
+
 // ---- Modal confirm global ----
 const confirmState = ref({ show: false, message: '', resolve: null })
 
@@ -292,6 +330,15 @@ onMounted(loadProjects)
         </span>
         <span class="status-text status-idle" v-else>Backup auto activé</span>
       </template>
+      <span class="status-divider"></span>
+      <button class="status-icon-btn" title="Aide" @click="showHelp = true; helpTab = 'ecriture'">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Aide
+      </button>
+      <button class="status-icon-btn status-bug-btn" title="Signaler un bug" @click="openBugReport">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 2l1.5 1.5"/><path d="M14.5 3.5L16 2"/><path d="M9 7.5A3 3 0 0 0 6 10.5v1a6 6 0 0 0 12 0v-1a3 3 0 0 0-3-3H9z"/><path d="M6.5 10.5H3"/><path d="M20.5 10.5H18"/><path d="M6.5 15.5H3"/><path d="M20.5 15.5H18"/><path d="M9 18.5v2"/><path d="M15 18.5v2"/></svg>
+        Bug
+      </button>
     </div>
   </div>
 
@@ -389,6 +436,237 @@ onMounted(loadProjects)
 
       <div class="modal-actions">
         <button class="btn-primary" @click="showSettings = false">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Aide -->
+  <div v-if="showHelp" class="modal-overlay" @click.self="showHelp = false">
+    <div class="modal help-modal">
+      <div class="help-header">
+        <h2>Aide — EcrisTonHistoire</h2>
+        <button class="modal-close-btn" @click="showHelp = false">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="help-tabs">
+        <button
+          v-for="tab in helpTabs"
+          :key="tab.id"
+          class="help-tab"
+          :class="{ active: helpTab === tab.id }"
+          @click="helpTab = tab.id"
+        >{{ tab.label }}</button>
+      </div>
+
+      <div class="help-body">
+
+        <!-- ÉCRITURE -->
+        <div v-if="helpTab === 'ecriture'">
+          <div class="help-section">
+            <h3>Barre d'outils de l'éditeur</h3>
+            <div class="help-grid">
+              <div class="help-item"><span class="help-badge">Aa</span><div><strong>Police &amp; taille</strong><p>Choisissez la famille de police et la taille (en points) via les menus déroulants. Vous pouvez aussi charger vos propres polices depuis le bouton <em>Polices personnalisées</em> dans les paramètres de l'écriture.</p></div></div>
+              <div class="help-item"><span class="help-badge">G I S</span><div><strong>Gras, Italique, Souligné, Barré</strong><p>Appliquent le style au texte sélectionné. Raccourcis : <kbd>Ctrl+B</kbd>, <kbd>Ctrl+I</kbd>, <kbd>Ctrl+U</kbd>.</p></div></div>
+              <div class="help-item"><span class="help-badge">≡</span><div><strong>Alignement</strong><p>Gauche, centré, droite ou justifié. S'applique au paragraphe courant.</p></div></div>
+              <div class="help-item"><span class="help-badge">Abc</span><div><strong>Lettrine</strong><p>Place une grande lettre décorée au début du paragraphe. Cliquez sur le bouton pour ouvrir le panneau : choisissez le nombre de lignes (hauteur) et la police. Cliquez <em>Appliquer</em> pour activer, <em>Retirer</em> pour supprimer.</p></div></div>
+              <div class="help-item"><span class="help-badge">¶</span><div><strong>Indentation &amp; espacement</strong><p>Ouvre un panneau pour régler l'indentation de première ligne, l'espace avant et après le paragraphe. Le bouton <em>Appliquer à tous</em> applique les mêmes valeurs à l'ensemble du chapitre.</p></div></div>
+              <div class="help-item"><span class="help-badge">H1 H2</span><div><strong>Titres</strong><p>Niveaux de titres 1 à 6 pour structurer le contenu (utile pour les liminaires ou notes).</p></div></div>
+              <div class="help-item"><span class="help-badge">🔗</span><div><strong>Lien hypertexte</strong><p>Sélectionnez du texte puis cliquez pour insérer un lien. Ce lien sera cliquable dans l'export Word.</p></div></div>
+              <div class="help-item"><span class="help-badge">⌄⌄</span><div><strong>Listes</strong><p>Listes à puces, numérotées ou de tâches (cases à cocher).</p></div></div>
+            </div>
+          </div>
+          <div class="help-section">
+            <h3>Rechercher &amp; remplacer</h3>
+            <p>Raccourci <kbd>Ctrl+H</kbd> dans l'éditeur. Permet de rechercher un mot ou une expression et de le remplacer dans le chapitre ouvert.</p>
+          </div>
+          <div class="help-section">
+            <h3>Paramètres globaux de mise en page</h3>
+            <p>Le bouton <em>Mise en page</em> (icône engrenage) dans la barre haute de l'écriture ouvre un panneau pour régler la police, taille, interligne, marges et indentation par défaut. Ces valeurs s'appliquent à l'affichage et à l'export Word.</p>
+          </div>
+        </div>
+
+        <!-- CHAPITRES -->
+        <div v-if="helpTab === 'chapitres'">
+          <div class="help-section">
+            <h3>Créer un chapitre</h3>
+            <p>Cliquez sur <strong>+ Nouveau chapitre</strong> en bas de la liste. Le chapitre est créé à la fin et nommé automatiquement.</p>
+          </div>
+          <div class="help-section">
+            <h3>Réorganiser</h3>
+            <p>Glissez-déposez les chapitres avec l'icône <strong>⠿</strong> (à gauche du titre) pour changer leur ordre. Les chapitres nommés <em>Chapitre N</em> sont renumérotés automatiquement.</p>
+          </div>
+          <div class="help-section">
+            <h3>Menu contextuel (clic droit)</h3>
+            <p>Faites un clic droit sur un chapitre pour :</p>
+            <ul>
+              <li><strong>Insérer avant / après</strong> : crée un nouveau chapitre à la position souhaitée avec renumérotation automatique.</li>
+              <li><strong>Supprimer</strong> : supprime le chapitre (confirmation demandée).</li>
+            </ul>
+          </div>
+          <div class="help-section">
+            <h3>Parties</h3>
+            <p>Chaque chapitre peut appartenir à une <em>Partie</em> (ex : "Tome 1", "Acte II"). Modifiez le nom de la partie directement dans l'en-tête de la page d'écriture — tous les chapitres de la même partie sont mis à jour.</p>
+          </div>
+          <div class="help-section">
+            <h3>Statuts</h3>
+            <p>Un indicateur de couleur indique l'état du chapitre : <em>brouillon</em>, <em>en cours</em>, <em>terminé</em> ou <em>à réviser</em>. Cliquez sur le point coloré pour changer.</p>
+          </div>
+        </div>
+
+        <!-- PERSONNAGES -->
+        <div v-if="helpTab === 'personnages'">
+          <div class="help-section">
+            <h3>Fiche personnage</h3>
+            <p>Chaque personnage dispose de plusieurs onglets :</p>
+            <ul>
+              <li><strong>Profil</strong> : nom, âge, description physique et psychologique, notes libres.</li>
+              <li><strong>Traits</strong> : liste de traits de caractère personnalisables (forces, faiblesses, habitudes…).</li>
+              <li><strong>Arc narratif</strong> : suivez l'évolution du personnage au fil des chapitres.</li>
+              <li><strong>Relations</strong> : définissez les liens avec d'autres personnages (ami, ennemi, famille…).</li>
+              <li><strong>Inspirations</strong> : associez des images de référence et des liens web (boards d'inspiration, Pinterest…).</li>
+            </ul>
+          </div>
+          <div class="help-section">
+            <h3>Inspirations — Images</h3>
+            <p>Cliquez sur <strong>+ Ajouter une image</strong> pour importer une image depuis votre ordinateur. Elle est stockée dans la base de données.</p>
+          </div>
+          <div class="help-section">
+            <h3>Inspirations — Liens</h3>
+            <p>Ajoutez une URL et un libellé. Cliquez sur le lien pour l'ouvrir dans votre navigateur. Les liens apparaissent au-dessus des images.</p>
+          </div>
+          <div class="help-section">
+            <h3>Vue Relations</h3>
+            <p>L'onglet <em>Relations</em> dans la navigation affiche une carte visuelle de tous les liens entre personnages.</p>
+          </div>
+        </div>
+
+        <!-- TIMELINE -->
+        <div v-if="helpTab === 'timeline'">
+          <div class="help-section">
+            <h3>Frise chronologique</h3>
+            <p>Créez des événements avec une date, un titre et une description. Les événements sont triés par date et affichés sur une frise visuelle.</p>
+          </div>
+          <div class="help-section">
+            <h3>Associer à des personnages</h3>
+            <p>Chaque événement peut être lié à un ou plusieurs personnages de votre projet.</p>
+          </div>
+          <div class="help-section">
+            <h3>Liminaires</h3>
+            <p>La section <em>Liminaires</em> permet de créer des pages spéciales (dédicace, épigraphe, avant-propos…) qui seront exportées en début de document Word.</p>
+          </div>
+        </div>
+
+        <!-- EXPORT -->
+        <div v-if="helpTab === 'export'">
+          <div class="help-section">
+            <h3>Export Word (.docx)</h3>
+            <p>Dans la vue Écriture, le bouton <strong>Exporter en Word</strong> génère un fichier <code>.docx</code> compatible Microsoft Word, LibreOffice, etc.</p>
+          </div>
+          <div class="help-section">
+            <h3>Ce qui est exporté</h3>
+            <ul>
+              <li>Liminaires (si présents)</li>
+              <li>Tous les chapitres dans l'ordre, avec leur titre</li>
+              <li>Mise en forme : police, taille, gras, italique, souligné, couleur</li>
+              <li>Alignement et indentation de paragraphe</li>
+              <li>Lettrines (drop cap)</li>
+              <li>Liens hypertexte</li>
+              <li>Saut de page entre chapitres</li>
+            </ul>
+          </div>
+          <div class="help-section">
+            <h3>Paramètres d'export</h3>
+            <p>Les paramètres de mise en page (police, interligne, marges) définis dans le panneau <em>Mise en page</em> de l'éditeur sont utilisés pour l'export.</p>
+          </div>
+        </div>
+
+        <!-- SAUVEGARDES -->
+        <div v-if="helpTab === 'sauvegarde'">
+          <div class="help-section">
+            <h3>Sauvegarde automatique des chapitres</h3>
+            <p>Le contenu de chaque chapitre est sauvegardé automatiquement <strong>1,5 seconde</strong> après chaque modification. L'indicateur en bas à gauche de l'écran affiche l'état de la sauvegarde.</p>
+          </div>
+          <div class="help-section">
+            <h3>Sauvegarde automatique de la base</h3>
+            <p>Activez la sauvegarde automatique dans <em>Paramètres</em> pour créer une copie complète de la base de données à intervalle régulier (15 min à 4h). Les 5 dernières copies sont conservées.</p>
+          </div>
+          <div class="help-section">
+            <h3>Sauvegardes manuelles</h3>
+            <p>Dans <em>Paramètres → Sauvegardes manuelles</em>, cliquez sur <strong>+ Créer une sauvegarde</strong> pour prendre un instantané à tout moment. Vous pouvez restaurer ou supprimer n'importe quelle sauvegarde.</p>
+          </div>
+          <div class="help-section">
+            <h3>Emplacement des sauvegardes</h3>
+            <p>Les fichiers sont stockés dans <code>%APPDATA%\ecristonhistoire\backups\</code>. Vous pouvez ouvrir ce dossier directement depuis le bouton <em>Ouvrir le dossier</em> dans les paramètres.</p>
+          </div>
+        </div>
+
+      </div>
+      <div class="help-footer">
+        <button class="btn-primary" @click="showHelp = false">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Rapport de bug -->
+  <div v-if="showBugReport" class="modal-overlay" @click.self="showBugReport = false">
+    <div class="modal bug-modal">
+      <div class="help-header">
+        <h2>Signaler un problème</h2>
+        <button class="modal-close-btn" @click="showBugReport = false">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <p class="bug-intro">Le formulaire ouvrira une issue GitHub dans votre navigateur. Un compte GitHub est nécessaire pour soumettre.</p>
+
+      <div class="bug-form">
+        <div class="bug-field">
+          <label>Type</label>
+          <div class="bug-type-row">
+            <button class="bug-type-btn" :class="{ active: bugForm.type === 'bug' }" @click="bugForm.type = 'bug'">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 2l1.5 1.5"/><path d="M14.5 3.5L16 2"/><path d="M9 7.5A3 3 0 0 0 6 10.5v1a6 6 0 0 0 12 0v-1a3 3 0 0 0-3-3H9z"/><path d="M6.5 10.5H3"/><path d="M20.5 10.5H18"/><path d="M6.5 15.5H3"/><path d="M20.5 15.5H18"/></svg>
+              Bug
+            </button>
+            <button class="bug-type-btn" :class="{ active: bugForm.type === 'suggestion' }" @click="bugForm.type = 'suggestion'">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Suggestion
+            </button>
+            <button class="bug-type-btn" :class="{ active: bugForm.type === 'amélioration' }" @click="bugForm.type = 'amélioration'">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+              Amélioration
+            </button>
+          </div>
+        </div>
+
+        <div class="bug-field">
+          <label>Titre <span class="required">*</span></label>
+          <input v-model="bugForm.title" type="text" class="bug-input" :placeholder="bugForm.type === 'bug' ? 'Ex : La lettrine disparaît après rechargement' : 'Ex : Ajouter un thème sépia'" />
+        </div>
+
+        <div class="bug-field">
+          <label>Description</label>
+          <textarea v-model="bugForm.description" class="bug-textarea" rows="3" :placeholder="bugForm.type === 'bug' ? 'Décrivez ce qui se passe...' : 'Décrivez votre idée...'" />
+        </div>
+
+        <template v-if="bugForm.type === 'bug'">
+          <div class="bug-field">
+            <label>Étapes pour reproduire</label>
+            <textarea v-model="bugForm.steps" class="bug-textarea" rows="3" placeholder="1. Ouvrir un chapitre&#10;2. Ajouter une lettrine&#10;3. Changer de chapitre&#10;4. Revenir → la lettrine a disparu" />
+          </div>
+          <div class="bug-field">
+            <label>Comportement attendu</label>
+            <textarea v-model="bugForm.expected" class="bug-textarea" rows="2" placeholder="La lettrine devrait rester visible après rechargement." />
+          </div>
+        </template>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-secondary" @click="showBugReport = false">Annuler</button>
+        <button class="btn-primary" :disabled="!bugForm.title.trim()" @click="submitBugReport">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+          Ouvrir sur GitHub
+        </button>
       </div>
     </div>
   </div>

@@ -19,6 +19,7 @@ class DB {
       this.db = new SQL.Database()
     }
 
+    this.SQL = SQL  // conservé pour usage dans _migrate()
     this.db.run('PRAGMA foreign_keys = ON')
     this._createSchema()
     this._migrate()
@@ -223,6 +224,35 @@ class DB {
     const chapCols = this._query(`PRAGMA table_info(chapters)`).map(r => r.name)
     if (!chapCols.includes('status')) {
       this.db.run(`ALTER TABLE chapters ADD COLUMN status TEXT DEFAULT NULL`)
+    }
+
+    // Fix ponctuel : chapitre 39 (id=40) corrompu (contenu identique au chapitre 38)
+    const ch38row = this._query(`SELECT content FROM chapters WHERE id = 39`)[0]
+    const ch39row = this._query(`SELECT content FROM chapters WHERE id = 40`)[0]
+    if (ch38row && ch39row && ch38row.content && ch38row.content === ch39row.content) {
+      const backupDir = path.join(path.dirname(this.dbPath), 'backups')
+      const candidates = [
+        'ecristonhistoire_auto_2026-04-06_12-46.db',
+        'ecristonhistoire_auto_2026-04-05_17-10.db',
+        'ecristonhistoire_auto_2026-04-04_23-15.db',
+      ]
+      for (const name of candidates) {
+        const bPath = path.join(backupDir, name)
+        if (!fs.existsSync(bPath)) continue
+        try {
+          const bBuf = fs.readFileSync(bPath)
+          const bDb = new this.SQL.Database(bBuf)
+          const bRes = bDb.exec(`SELECT content FROM chapters WHERE id = 40`)
+          bDb.close()
+          if (!bRes.length) continue
+          const goodContent = bRes[0].values[0][0]
+          if (!goodContent || goodContent === ch38row.content) continue
+          // Corriger aussi la lettrine si elle est sur un <br>
+          const fixed = goodContent.replace(/<span([^>]*data-drop-cap[^>]*)><br><\/span>(L)/g, '<span$1>L</span>')
+          this.db.run(`UPDATE chapters SET content = ? WHERE id = 40`, [fixed])
+          break
+        } catch (e) { /* backup illisible, essayer le suivant */ }
+      }
     }
   }
 

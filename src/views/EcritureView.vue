@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, inject, nextTick } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import { Node, Extension, Mark, mergeAttributes } from '@tiptap/core'
+import { EditorState } from '@tiptap/pm/state'
 import { TextSelection } from 'prosemirror-state'
 import StarterKit from '@tiptap/starter-kit'
 
@@ -780,19 +781,38 @@ async function loadChapters() {
   chapters.value = await window.api.chapters.getAll(props.projectId)
 }
 
+let isOpeningChapter = false
+
 async function openChapter(ch) {
-  // Sauvegarder l'actuel avant de changer
-  if (currentChapter.value && editor.value) {
-    clearTimeout(saveTimer)
-    await autoSave(editor.value)
+  if (isOpeningChapter) return
+  isOpeningChapter = true
+  try {
+    // Sauvegarder l'actuel avant de changer
+    if (currentChapter.value && editor.value) {
+      clearTimeout(saveTimer)
+      await autoSave(editor.value)
+    }
+    const full = await window.api.chapters.get(ch.id)
+    currentChapter.value = full
+    chapterTitle.value = full.title
+    pagePartName.value = full.part || ''
+    activeHeaderBlock.value = null
+    // false = ne pas émettre onUpdate (évite déclenchement d'un autosave au chargement)
+    editor.value?.commands.setContent(full.content || '', false)
+    // Recréer un EditorState propre pour vider totalement l'historique d'annulation.
+    // (clearHistory n'existe pas dans cette version de TipTap)
+    if (editor.value) {
+      const freshState = EditorState.create({
+        schema: editor.value.schema,
+        doc: editor.value.state.doc,
+        plugins: editor.value.state.plugins,
+      })
+      editor.value.view.updateState(freshState)
+    }
+    editor.value?.commands.focus()
+  } finally {
+    isOpeningChapter = false
   }
-  const full = await window.api.chapters.get(ch.id)
-  currentChapter.value = full
-  chapterTitle.value = full.title
-  pagePartName.value = full.part || ''
-  activeHeaderBlock.value = null
-  editor.value?.commands.setContent(full.content || '')
-  editor.value?.commands.focus()
 }
 
 // ---- Édition directe en-tête page ----
@@ -996,11 +1016,26 @@ function applyDropCap() {
   const paraSize  = $from.parent.content.size
   if (paraSize === 0) return
   const markType = state.schema.marks.dropCap
+
+  // Trouver la position du premier vrai caractère de texte (ignorer les HardBreak)
+  const parent = $from.parent
+  let firstTextPos = -1
+  let offset = 0
+  for (let i = 0; i < parent.childCount; i++) {
+    const child = parent.child(i)
+    if (child.isText) {
+      firstTextPos = paraStart + offset
+      break
+    }
+    offset += child.nodeSize
+  }
+  if (firstTextPos === -1) return // Pas de texte dans ce paragraphe
+
   const tr = state.tr
   // Retirer toute lettrine existante dans ce paragraphe
   tr.removeMark(paraStart, paraStart + paraSize, markType)
-  // Appliquer sur le premier caractère uniquement
-  tr.addMark(paraStart, paraStart + 1, markType.create({
+  // Appliquer sur le premier caractère de texte uniquement
+  tr.addMark(firstTextPos, firstTextPos + 1, markType.create({
     lines: dropCapLines.value,
     font:  dropCapFont.value || null,
   }))
